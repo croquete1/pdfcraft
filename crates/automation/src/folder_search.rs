@@ -222,6 +222,63 @@ mod tests {
         assert!(discover(&dir.path().join("file.pdf"), false).is_err());
     }
 
+    /// All fixtures are generated here: there are no external or binary assets.
+    fn sample_pdf(text: &str) -> Vec<u8> {
+        let contents = format!("BT /F1 12 Tf 40 100 Td ({text}) Tj ET");
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>".to_owned(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>".to_owned(),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
+            format!("<< /Length {} >>\\nstream\\n{contents}\\nendstream", contents.len()),
+        ];
+        let mut pdf = b"%PDF-1.4\\n".to_vec();
+        let mut offsets = Vec::new();
+        for (index, object) in objects.iter().enumerate() {
+            offsets.push(pdf.len());
+            pdf.extend_from_slice(format!("{} 0 obj\\n{object}\\nendobj\\n", index + 1).as_bytes());
+        }
+        let xref = pdf.len();
+        pdf.extend_from_slice(format!("xref\\n0 {}\\n0000000000 65535 f \\n", offsets.len() + 1).as_bytes());
+        for offset in offsets {
+            pdf.extend_from_slice(format!("{offset:010} 00000 n \\n").as_bytes());
+        }
+        pdf.extend_from_slice(format!("trailer\\n<< /Size 6 /Root 1 0 R >>\\nstartxref\\n{xref}\\n%%EOF\\n").as_bytes());
+        pdf
+    }
+
+    #[test]
+    fn folder_search_finds_unopened_documents_and_reports_unreadable_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = sample_pdf("Invoice received");
+        let b = sample_pdf("Invoice approved");
+        std::fs::write(dir.path().join("a.pdf"), &a).unwrap();
+        std::fs::write(dir.path().join("b.PDF"), &b).unwrap();
+        std::fs::write(dir.path().join("bad.pdf"), b"not a PDF").unwrap();
+        std::fs::create_dir(dir.path().join("nested")).unwrap();
+        std::fs::write(dir.path().join("nested").join("c.pdf"), sample_pdf("Invoice archived")).unwrap();
+
+        let engine = Automation::new().with_root(dir.path()).unwrap();
+        assert!(engine.session().docs().is_empty());
+        let direct = engine.text_find_folder(&Args(&json!({"directory":".","query":"invoice"}))).unwrap();
+        assert_eq!(direct["count"], 2, "{direct}");
+        assert_eq!(direct["matched_files"], 2);
+        assert_eq!(direct["warning_count"], 1);
+        assert_eq!(direct["complete"], false);
+        assert_eq!(direct["matches"][0]["page"], 1);
+        assert!(direct["matches"][0]["file"].as_str().unwrap().ends_with("a.pdf"));
+        assert_eq!(std::fs::read(dir.path().join("a.pdf")).unwrap(), a, "search must not modify files");
+
+        let nested = engine.text_find_folder(&Args(&json!({"directory":".","query":"invoice","recursive":true}))).unwrap();
+        assert_eq!(nested["count"], 3, "{nested}");
+        assert!(engine.session().docs().is_empty(), "search must not open tabs in the caller");
+
+        let capped = engine.text_find_folder(&Args(&json!({"directory":".","query":"invoice","limit":1}))).unwrap();
+        assert_eq!(capped["count"], 1);
+        assert_eq!(capped["truncated"], true);
+        assert_eq!(capped["complete"], false);
+    }
+
     #[cfg(unix)]
     #[test]
     fn folder_search_does_not_follow_symlinked_subfolders() {
