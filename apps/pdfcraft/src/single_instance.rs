@@ -85,9 +85,9 @@ impl Server {
 
     /// The queue the UI drains every frame (`PdfCraftApp::os_events`). Files that arrived before
     /// the window existed are in the first batch. A batch also brings the window forward, as the
-    /// new window it replaces would have been. A Wayland window can't bring itself forward (winit
-    /// ignores `Focus` there), so on `native_wayland` it asks for the user's attention instead,
-    /// which desktops show by highlighting it in the taskbar.
+    /// new window it replaces would have been. Wayland can't honor `Focus`; on Windows the OS can
+    /// deny foreground activation to a background app. Both therefore request taskbar attention
+    /// as a fallback, without changing how already-focused windows behave (#5344).
     pub fn connect(&self, ctx: &egui::Context, native_wayland: bool) -> OsEventsFn {
         let wake = ctx.clone();
         self.inbox.lock().unwrap_or_else(PoisonError::into_inner).wake = Some(Box::new(move || wake.request_repaint()));
@@ -98,14 +98,23 @@ impl Server {
             if paths.is_empty() {
                 return Vec::new();
             }
-            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-            if native_wayland {
-                ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
+            for cmd in handoff_viewport_commands(native_wayland) {
+                ctx.send_viewport_cmd(cmd);
             }
             vec![OsEvent::Open(paths)]
         })
     }
+}
+
+/// Commands for a handoff. On Windows, SetForegroundWindow may refuse focus from a process
+/// which isn't foreground; requesting attention lets the shell highlight the taskbar button.
+/// Wayland already needs the same fallback. A focused window does not keep flashing.
+fn handoff_viewport_commands(native_wayland: bool) -> Vec<egui::ViewportCommand> {
+    let mut commands = vec![egui::ViewportCommand::Minimized(false), egui::ViewportCommand::Focus];
+    if cfg!(target_os = "windows") || native_wayland {
+        commands.push(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
+    }
+    commands
 }
 
 /// The request a launch sends: `{"open":[…]}` and a newline.
@@ -391,6 +400,31 @@ mod tests {
         assert_eq!(socket_name(None, Some(r"..\x/y:z")), "instance-xyz.sock", "never a path");
         assert_eq!(socket_name(None, None), "instance.sock");
         assert_eq!(socket_name(None, Some("")), "instance.sock");
+    }
+
+    #[test]
+    fn handoff_requests_taskbar_attention_on_windows_and_wayland() {
+        let wayland = handoff_viewport_commands(true);
+        assert!(matches!(
+            wayland.as_slice(),
+            [
+                egui::ViewportCommand::Minimized(false),
+                egui::ViewportCommand::Focus,
+                egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational)
+            ]
+        ));
+
+        let other = handoff_viewport_commands(false);
+        assert!(matches!(other.first(), Some(egui::ViewportCommand::Minimized(false))));
+        assert!(matches!(other.get(1), Some(egui::ViewportCommand::Focus)));
+        assert_eq!(
+            other.iter().any(|cmd| matches!(
+                cmd,
+                egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational)
+            )),
+            cfg!(target_os = "windows"),
+            "Windows asks for attention when the OS refuses foreground activation; X11 does not"
+        );
     }
 
     #[test]
