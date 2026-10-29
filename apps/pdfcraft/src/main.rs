@@ -467,6 +467,10 @@ fn app_creator<'a>(
                 &[("folder", &w.folder.display().to_string()), ("error", &w.error)],
             );
         }
+        // A new Windows process launched by a document opener can start behind the foreground
+        // application. Request the same taskbar attention as a handed-off open (#5344).
+        // The shell ignores the request if the PdfCraft window is already focused.
+        let command_line_open = cfg!(target_os = "windows") && !create_images && !files.is_empty();
         if create_images {
             if let Err(e) = app.begin_image_import_paths(&files) {
                 app.notify(e);
@@ -483,6 +487,9 @@ fn app_creator<'a>(
             if let Err(e) = app.set_option(&k, &v) {
                 log::warn!("--{k} {v}: {e}");
             }
+        }
+        if command_line_open {
+            cc.egui_ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
         }
         Ok(Box::new(app))
     })
