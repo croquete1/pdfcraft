@@ -428,6 +428,34 @@ mod tests {
     }
 
     #[test]
+    fn delivered_files_emit_attention_command_only_when_appropriate() {
+        for native_wayland in [false, true] {
+            let server = Server::new();
+            let ctx = egui::Context::default();
+            let mut poll = server.connect(&ctx, native_wayland);
+            server.deliver(vec!["sample.pdf".into()]);
+
+            let out = ctx.run(egui::RawInput::default(), |_ctx| {
+                assert!(matches!(poll().as_slice(), [OsEvent::Open(paths)] if paths == &["sample.pdf"]));
+            });
+            let attention = out
+                .viewport_output
+                .values()
+                .flat_map(|v| &v.commands)
+                .any(|cmd| matches!(cmd, egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational)));
+            assert_eq!(attention, native_wayland || cfg!(target_os = "windows"));
+
+            let idle = ctx.run(egui::RawInput::default(), |_ctx| {
+                assert!(poll().is_empty(), "the same handoff must not be delivered twice");
+            });
+            assert!(
+                !idle.viewport_output.values().flat_map(|v| &v.commands).any(|cmd| matches!(cmd, egui::ViewportCommand::RequestUserAttention(_))),
+                "no new files means no attention request"
+            );
+        }
+    }
+
+    #[test]
     fn delivered_files_reach_the_ui_once_wake_it_and_bring_the_window_forward() {
         let server = Server::new();
         // Before the window exists: queued, nothing to wake yet.
