@@ -80,7 +80,7 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                             let handle = ui.add(egui::Label::new(egui::RichText::new(tl!(title)).font(theme::semibold(15.5))).sense(Sense::drag()));
                             // drag_delta() reports only the current frame and is zero on
                             // drag_stopped(); keep the total displacement during the drag.
-                            let drag_id = ui.id().with(("navigation-header-drag", id.0));
+                            let drag_id = ui.scope_id().with(("navigation-header-drag", id.0));
                             if let Some(delta) = handle.total_drag_delta() {
                                 ui.data_mut(|data| data.insert_temp(drag_id, delta.x));
                             }
