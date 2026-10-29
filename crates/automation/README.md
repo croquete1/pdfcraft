@@ -229,3 +229,23 @@ behavior. Back/Forward
 returns to page tops, does not restore zoom, does not switch documents, and is not saved across
 restarts. Standalone engine/MCP sessions have no viewport, so they do not have a separate
 navigation-history tool; use the opt-in UI control channel to navigate the displayed document.
+
+### Search PDFs in a selected folder (headless)
+
+`text_find_folder` searches PDF text in a local folder without opening documents in the
+current automation session or writing to those files. Pass `directory`, `query`, and
+optionally `recursive: true` (subfolders) and `limit` (1–2000 results, default 500).
+
+```json
+{"tool":"text_find_folder","args":{"directory":"/documents/contracts","query":"invoice","recursive":true,"limit":200}}
+```
+
+The results contain each matching **file path**, **document name**, **page** (1-based),
+matched **text** and **rectangles**; counts, truncation, and bounded warnings distinguish
+unreadable/encrypted PDFs from no matches. Searching is strictly read-only. Discovery
+rejects link traversal, limits folders to 64 levels and 10,000 entries, and accepts at
+most 5,000 PDF files per search. `--root` and `--automation-read-root` still confine reads.
+Image-only scanned PDFs need an existing OCR text layer; the search does **not** launch OCR
+or index private folders automatically. The **Advanced Search desktop panel is not yet wired
+up** to this tool; integration with folder picking, progress, cancellation and result
+navigation remains a separate UI task.
