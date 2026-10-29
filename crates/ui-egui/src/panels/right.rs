@@ -78,8 +78,15 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                             // The title is a drag handle: release it toward the opposite side
                             // to redock the navigation pane (#5351). Buttons remain clickable.
                             let handle = ui.add(egui::Label::new(egui::RichText::new(tl!(title)).font(theme::semibold(15.5))).sense(Sense::drag()));
+                            // drag_delta() reports only the current frame and is zero on
+                            // drag_stopped(); keep the total displacement during the drag.
+                            let drag_id = ui.id().with(("navigation-header-drag", id.0));
+                            if let Some(delta) = handle.total_drag_delta() {
+                                ui.data_mut(|data| data.insert_temp(drag_id, delta.x));
+                            }
                             if handle.drag_stopped() {
-                                move_side_to_right = navigation_drag_target(handle.drag_delta().x);
+                                let distance = ui.data_mut(|data| data.remove_temp::<f32>(drag_id)).unwrap_or_default();
+                                move_side_to_right = navigation_drag_target(distance);
                             }
                             if let Some(c) = count {
                                 ui.label(egui::RichText::new(c.to_string()).font(theme::medium(13.0)).color(t.text_faint));
