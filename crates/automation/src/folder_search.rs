@@ -122,11 +122,14 @@ impl Automation {
                     reader.roots = self.roots.clone();
                     let opened = reader.doc_open(&Args(&json!({"path":path_str})));
                     match opened {
-                        Ok(document) => {
-                            let id = document.get("doc").and_then(Value::as_u64).ok_or_else(|| failed("opened PDF has no document id"))?;
-                            let remaining = limit.saturating_sub(matches.len());
-                            reader.text_find(&Args(&json!({"doc":id,"query":query,"limit":remaining.saturating_add(1)})))
-                        }
+                        Ok(document) => document
+                            .get("doc")
+                            .and_then(Value::as_u64)
+                            .ok_or_else(|| failed("opened PDF has no document id"))
+                            .and_then(|id| {
+                                let remaining = limit.saturating_sub(matches.len());
+                                reader.text_find(&Args(&json!({"doc":id,"query":query,"limit":remaining.saturating_add(1)})))
+                            }),
                         Err(err) => Err(err),
                     }
                 }
