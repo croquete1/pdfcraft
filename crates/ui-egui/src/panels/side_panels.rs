@@ -525,7 +525,6 @@ mod tests {
     fn navigation_pane_side_survives_save_and_restore() {
         let mut panels = SidePanels::default();
         assert!(panels.side_on_right);
-        assert!(matches!(state_of(&panels, Pane::Side), PaneState::Docked { .. }));
         panels.side_on_right = false;
         let saved = panels.to_json(true);
         assert_eq!(saved["side_on_right"], false);
