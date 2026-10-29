@@ -230,20 +230,20 @@ mod tests {
             "<< /Type /Pages /Count 1 /Kids [3 0 R] >>".to_owned(),
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>".to_owned(),
             "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_owned(),
-            format!("<< /Length {} >>\\nstream\\n{contents}\\nendstream", contents.len()),
+            format!("<< /Length {} >>\nstream\n{contents}\nendstream", contents.len()),
         ];
-        let mut pdf = b"%PDF-1.4\\n".to_vec();
+        let mut pdf = b"%PDF-1.4\n".to_vec();
         let mut offsets = Vec::new();
         for (index, object) in objects.iter().enumerate() {
             offsets.push(pdf.len());
-            pdf.extend_from_slice(format!("{} 0 obj\\n{object}\\nendobj\\n", index + 1).as_bytes());
+            pdf.extend_from_slice(format!("{} 0 obj\n{object}\nendobj\n", index + 1).as_bytes());
         }
         let xref = pdf.len();
-        pdf.extend_from_slice(format!("xref\\n0 {}\\n0000000000 65535 f \\n", offsets.len() + 1).as_bytes());
+        pdf.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", offsets.len() + 1).as_bytes());
         for offset in offsets {
-            pdf.extend_from_slice(format!("{offset:010} 00000 n \\n").as_bytes());
+            pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
         }
-        pdf.extend_from_slice(format!("trailer\\n<< /Size 6 /Root 1 0 R >>\\nstartxref\\n{xref}\\n%%EOF\\n").as_bytes());
+        pdf.extend_from_slice(format!("trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes());
         pdf
     }
 
