@@ -67,11 +67,13 @@ pub struct SidePanels {
     pub tools_side: ToolsSide,
     pub tools_width: f32,
     pub side_width: f32,
+    /// The navigation/Inspector pane can dock on either side (#5351).
+    pub side_on_right: bool,
 }
 
 impl Default for SidePanels {
     fn default() -> Self {
-        Self { tools_side: ToolsSide::Left, tools_width: TOOLS_WIDTH, side_width: SIDE_WIDTH }
+        Self { tools_side: ToolsSide::Left, tools_width: TOOLS_WIDTH, side_width: SIDE_WIDTH, side_on_right: true }
     }
 }
 
@@ -126,6 +128,7 @@ impl SidePanels {
             "tools_open": tools_open,
             "tools_width": self.tools_width,
             "side_width": self.side_width,
+            "side_on_right": self.side_on_right,
         })
     }
 }
@@ -148,6 +151,10 @@ pub fn restore(saved: &Value) -> Restored {
         }
         if let Some(width) = value.get("side_width").and_then(Value::as_f64).and_then(|w| clamp_width(Pane::Side, w)) {
             panels.side_width = width;
+        }
+        // Old saved layouts have no side_on_right and keep the right-hand default.
+        if let Some(right) = value.get("side_on_right").and_then(Value::as_bool) {
+            panels.side_on_right = right;
         }
         return Restored { panels, tools_open: value.get("tools_open").and_then(Value::as_bool), side_closed: false };
     }
@@ -273,6 +280,7 @@ pub fn state(app: &PdfCraftApp) -> Value {
         "side_open": app.right.is_some(),
         "side_panel": app.right.map(|r| format!("{r:?}")),
         "side_width": panels.side_width,
+        "side_on_right": panels.side_on_right,
     })
 }
 
@@ -349,7 +357,7 @@ impl PaneContent<Pane> for Content<'_> {
 fn state_of(panels: &SidePanels, pane: Pane) -> PaneState {
     let edge = match pane {
         Pane::Tools => panels.tools_edge(),
-        Pane::Side => Edge::End,
+        Pane::Side => if panels.side_on_right { Edge::End } else { Edge::Start },
     };
     PaneState::docked(edge, panels.width(pane))
 }
@@ -434,7 +442,7 @@ mod tests {
     #[test]
     fn docked_default_keeps_widths() {
         let restored = restore(&docked(300.0, 400.0));
-        assert_eq!(restored.panels, SidePanels { tools_side: ToolsSide::Left, tools_width: 300.0, side_width: 400.0 });
+        assert_eq!(restored.panels, SidePanels { tools_side: ToolsSide::Left, tools_width: 300.0, side_width: 400.0, side_on_right: true });
         assert_eq!((restored.tools_open, restored.side_closed), (Some(true), false));
     }
 
@@ -461,7 +469,7 @@ mod tests {
             json!([]),
         );
         let restored = restore(&old);
-        assert_eq!(restored.panels, SidePanels { tools_side: ToolsSide::Left, tools_width: TOOLS_WIDTH, side_width: 360.0 });
+        assert_eq!(restored.panels, SidePanels { tools_side: ToolsSide::Left, tools_width: TOOLS_WIDTH, side_width: 360.0, side_on_right: true });
         assert_eq!((restored.tools_open, restored.side_closed), (Some(true), false));
     }
 
@@ -485,7 +493,7 @@ mod tests {
             ]),
         );
         let restored = restore(&old);
-        assert_eq!(restored.panels, SidePanels { tools_side: ToolsSide::Right, tools_width: 250.0, side_width: 380.0 });
+        assert_eq!(restored.panels, SidePanels { tools_side: ToolsSide::Right, tools_width: 250.0, side_width: 380.0, side_on_right: true });
         assert_eq!((restored.tools_open, restored.side_closed), (Some(false), true));
     }
 
@@ -504,7 +512,7 @@ mod tests {
         }
         // Non-finite and out-of-range widths fall back or clamp; an unknown side keeps Left.
         let restored = restore(&json!({"side_panels": {"version": 1, "tools_side": "up", "tools_width": 9000.0, "side_width": "x"}}));
-        assert_eq!(restored.panels, SidePanels { tools_side: ToolsSide::Left, tools_width: 520.0, side_width: SIDE_WIDTH });
+        assert_eq!(restored.panels, SidePanels { tools_side: ToolsSide::Left, tools_width: 520.0, side_width: SIDE_WIDTH, side_on_right: true });
         // Deep trees are cut off rather than walked.
         let mut deep = tabs(&["tools"]);
         for _ in 0..200 {
@@ -514,8 +522,23 @@ mod tests {
     }
 
     #[test]
+    fn navigation_pane_side_survives_save_and_restore() {
+        let mut panels = SidePanels::default();
+        assert!(panels.side_on_right);
+        assert!(matches!(state_of(&panels, Pane::Side), PaneState::Docked { .. }));
+        panels.side_on_right = false;
+        let saved = panels.to_json(true);
+        assert_eq!(saved["side_on_right"], false);
+        let restored = restore(&json!({"side_panels": saved}));
+        assert_eq!(restored.panels, panels);
+        // Existing v1 preferences must retain their original right-hand placement.
+        let legacy = restore(&json!({"side_panels": {"version": 1, "side_width": 320.0}}));
+        assert!(legacy.panels.side_on_right);
+    }
+
+    #[test]
     fn saved_value_round_trips() {
-        let panels = SidePanels { tools_side: ToolsSide::Right, tools_width: 300.0, side_width: 410.0 };
+        let panels = SidePanels { tools_side: ToolsSide::Right, tools_width: 300.0, side_width: 410.0, side_on_right: true };
         let restored = restore(&json!({ "side_panels": panels.to_json(false) }));
         assert_eq!(restored, Restored { panels, tools_open: Some(false), side_closed: false });
     }
