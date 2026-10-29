@@ -197,6 +197,14 @@ pub fn tools() -> Vec<ToolDef> {
                 }),
                 &["doc"],
             )),
+        t("text_find_folder", "Find text in a folder of PDFs", "Read-only search of a chosen local directory of unopened PDFs. Optionally include subfolders. Return file paths, page numbers, text, rectangles, progress totals and bounded warnings. Never follow symlinks or Windows junctions. Discovery is limited to 10000 entries, 64 levels and 5000 PDFs; at most 2000 matches are retained. Existing open documents are untouched.")
+            .ro()
+            .with(schema(json!({
+                "directory": {"type":"string","description":"Selected local folder; confined by --root or read-root"},
+                "query": {"type":"string","minLength":1,"maxLength":4096},
+                "recursive": {"type":"boolean","description":"Include subfolders (default false)"},
+                "limit": {"type":"integer","minimum":1,"maximum":2000}
+            }), &["directory","query"])),
         t("text_find", "Find text", "Find a phrase (case-insensitive, whitespace-normalised) and return matches in page order with page and line rectangles in points (origin top-left). Reads growing batches, looking one match past the limit for a continuation. Failed pages do not discard readable matches: warnings contains up to 100 {page, error, error_truncated} entries (errors capped at 1024 UTF-8 bytes), warning_count counts failed pages, and warnings_truncated reports a capped list. complete is false after a page failure or when more matches exist; next is present only for a match-limit continuation.")
             .ro()
             .cmd("edit.find")
