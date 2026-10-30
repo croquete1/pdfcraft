@@ -326,10 +326,10 @@ fn appearance_menu(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
     }
 }
 
-/// Keep the icon and close button clear of the rounded hover background (#2657).
+/// Mantém o ícone e o botão de fecho afastados dos cantos arredondados ao passar o rato (#2657).
 const TAB_EDGE_PADDING: f32 = 10.0;
-/// Left icon (16), icon-to-text gap (6), text-to-close gap (10) and close button (20),
-/// plus the same inset at both ends.
+/// Ícone (16), espaço até ao texto (6), espaço até ao botão de fecho (10)
+/// e botão de fecho (20), com margens iguais nas duas extremidades.
 const TAB_CHROME: f32 = 2.0 * TAB_EDGE_PADDING + 52.0;
 /// The narrowest a tab shrinks to before the strip scrolls: room for most of a name.
 const TAB_MIN_WIDTH: f32 = 180.0;
@@ -808,8 +808,8 @@ mod page_position_tests {
 mod tab_widths {
     use super::{MAC_CONTENT_LEFT, MAC_LIGHT, MAC_LIGHT_PITCH, MAC_LIGHTS_LEFT, MAC_TITLE_BAR, TAB_CHROME, TAB_EDGE_PADDING, tab_cap};
 
-    /// The icon and close button keep a real inset inside the hover background.
-    /// The calculated tab width reserves the same space as the painter (#2657).
+    /// O ícone e o botão de fecho respeitam as margens do fundo realçado.
+    /// A largura calculada reserva o mesmo espaço utilizado no desenho (#2657).
     #[test]
     fn tab_content_keeps_symmetric_edge_padding() {
         let tab = egui::Rect::from_min_size(egui::pos2(37.0, 0.0), egui::vec2(200.0, 32.0));
