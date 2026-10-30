@@ -176,7 +176,7 @@ fn exclusive_refs(doc: &Document, refs: [Option<ObjRef>; 3]) -> [bool; 3] {
         if walked > MAX_WALK {
             return [false; 3];
         }
-        let children = match obj {
+        match obj {
             Object::Ref(r) => {
                 for (i, tracked) in refs.iter().enumerate() {
                     if *tracked == Some(r) {
@@ -184,20 +184,36 @@ fn exclusive_refs(doc: &Document, refs: [Option<ObjRef>; 3]) -> [bool; 3] {
                     }
                 }
                 if visited.insert(r.num) {
-                    vec![(*doc.get(r)).clone()]
-                } else {
-                    Vec::new()
+                    if stack.len() >= MAX_WALK {
+                        return [false; 3];
+                    }
+                    stack.push((*doc.get(r)).clone());
                 }
             }
-            Object::Array(a) => a,
-            Object::Dict(d) => d.iter().map(|(_, v)| v.clone()).collect(),
-            Object::Stream(s) => s.dict.iter().map(|(_, v)| v.clone()).collect(),
-            _ => Vec::new(),
-        };
-        if stack.len().saturating_add(children.len()) > MAX_WALK {
-            return [false; 3];
+            Object::Array(items) => {
+                if stack.len().saturating_add(items.len()) > MAX_WALK {
+                    return [false; 3];
+                }
+                stack.extend(items);
+            }
+            Object::Dict(dict) => {
+                for (_, value) in dict.iter() {
+                    if stack.len() >= MAX_WALK {
+                        return [false; 3];
+                    }
+                    stack.push(value.clone());
+                }
+            }
+            Object::Stream(stream) => {
+                for (_, value) in stream.dict.iter() {
+                    if stack.len() >= MAX_WALK {
+                        return [false; 3];
+                    }
+                    stack.push(value.clone());
+                }
+            }
+            _ => {}
         }
-        stack.extend(children);
     }
     std::array::from_fn(|i| refs[i].is_none_or(|_| incoming[i] == 1))
 }
