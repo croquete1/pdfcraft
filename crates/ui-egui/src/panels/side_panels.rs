@@ -1,9 +1,8 @@
 //! The side panels around the page: the Tools pane, the rail and the open side panel
 //! ([`crate::RightPanel`]), drawn with craft-ui task panes ([`craft_ui::panes`]).
 //!
-//! On the right, outermost first: the rail, the Tools pane when Preferences ▸ Tools panel side is
-//! Right, then the side panel, then the page. Panes are docked only; their widths are resizable
-//! and saved with the preferences.
+//! The rail and navigation panel can be placed together on either edge; the Tools pane has
+//! its own side preference. Panes are docked only; widths and positions are saved.
 
 use std::ops::RangeInclusive;
 
@@ -395,7 +394,7 @@ pub fn show(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
     if let Some(panel) = app.right {
         app.last_right = panel;
     }
-    // The rail first: it is the outermost panel on the right.
+    // Draw the rail first on its selected side, outside the navigation panel.
     if app.active.is_some() {
         crate::chrome::right_rail(app, ui);
     }
@@ -410,7 +409,7 @@ pub fn show(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
     let t = crate::theme::Tokens::get(ui.ctx());
     let labels = PaneLabels { resize: crate::i18n::t("Resize panels").to_owned(), ..PaneLabels::default() };
     let panels = app.side_panels;
-    // Columns: both panes may share the right edge, Tools outermost, as `open` lists them.
+    // Columns: tools and navigation may share either edge; use the order in `open`.
     let output = PaneHost::new(egui::Id::unique("pdfcraft-side-panels"))
         .policy(SidePolicy::Columns)
         .f6(false)
