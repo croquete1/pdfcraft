@@ -128,7 +128,7 @@ pub(crate) fn replace_line_with_limit(doc: &mut Document, page: usize, line: usi
     // A tight clip rectangle around the original run cuts off a longer replacement, so the new
     // text seems to vanish (#5207). Find the clip still in force at the line, and when it bounds
     // the run, widen it to where the new text now ends.
-    let clip_widen = font.as_ref().and_then(|metrics| {
+    let clip_widen = font.as_ref().filter(|_| target.upright()).and_then(|metrics| {
         let size = target.origin.state.font.as_ref().map_or(target.size, |(_, s)| *s);
         let space = source_space(doc, &fonts_res, metrics);
         let (cs, ws) = (target.origin.state.char_spacing, target.origin.state.word_spacing);
@@ -143,7 +143,7 @@ pub(crate) fn replace_line_with_limit(doc: &mut Document, page: usize, line: usi
         let ctm = ctm_before(&ops, re_i);
         // Only an upright, unflipped clip (what generators that box each run emit): a rotated or
         // mirrored one is left alone rather than widened in the wrong direction.
-        if !(ctm.0[1].abs() < 1e-6 && ctm.0[2].abs() < 1e-6 && ctm.0[0] > 1e-6 && ch.abs() > 1e-6) {
+        if !(ctm.0[1].abs() < 1e-6 && ctm.0[2].abs() < 1e-6 && ctm.0[0] > 1e-6 && cw > 1e-6 && ch.abs() > 1e-6) {
             return None;
         }
         let (lx, _) = ctm.apply(cx, cy);
