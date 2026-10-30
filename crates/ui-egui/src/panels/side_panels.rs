@@ -257,7 +257,8 @@ fn migrate(old: &Value) -> Option<Restored> {
     find(old.get("layout")?.get("root")?, "canvas", 0)?;
     let mut panels = SidePanels::default();
     let (tools_right, tools_open, tools_width) = old_panel(old, "tools");
-    let (_, side_open, side_width) = old_panel(old, "inspector");
+    let (side_right, side_open, side_width) = old_panel(old, "inspector");
+    panels.side_on_right = side_right;
     if tools_right {
         panels.tools_side = ToolsSide::Right;
     }
@@ -284,7 +285,7 @@ pub fn state(app: &PdfCraftApp) -> Value {
     })
 }
 
-/// `ui.panel {panel, open?, width?}` and `ui.dock.reset` (`reset`).
+/// `ui.panel {panel, open?, width?, side?}` and `ui.dock.reset` (`reset`).
 pub fn command(app: &mut PdfCraftApp, reset: bool, params: &Value) -> Result<Value, String> {
     if reset {
         app.side_panels = SidePanels::default();
@@ -301,8 +302,17 @@ pub fn command(app: &mut PdfCraftApp, reset: bool, params: &Value) -> Result<Val
         None | Some(Value::Null) => None,
         Some(value) => Some(value.as_f64().and_then(|w| clamp_width(pane, w)).ok_or("width must be a finite number")?),
     };
+    let side = match params.get("side") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) if pane == Pane::Side && value == "left" => Some(false),
+        Some(Value::String(value)) if pane == Pane::Side && value == "right" => Some(true),
+        _ => return Err("side is only valid for the navigation pane and must be left or right".into()),
+    };
     if let Some(width) = width {
         app.side_panels.set_width(pane, width);
+    }
+    if let Some(right) = side {
+        app.side_panels.side_on_right = right;
     }
     match (pane, open) {
         (Pane::Tools, Some(open)) => app.left_open = open,
