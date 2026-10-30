@@ -546,6 +546,23 @@ mod tests {
     }
 
     #[test]
+    fn migrating_a_left_docked_inspector_keeps_its_side() {
+        let old = workspace(
+            split(
+                json!({"FixedFirst": 360.0}),
+                tabs(&["inspector"]),
+                tabs(&["canvas"]),
+            ),
+            json!([]),
+            json!([]),
+        );
+        let restored = restore(&old);
+        assert!(!restored.panels.side_on_right);
+        assert_eq!(restored.panels.side_width, 360.0);
+        assert!(!restored.side_closed);
+    }
+
+    #[test]
     fn saved_value_round_trips() {
         let panels = SidePanels { tools_side: ToolsSide::Right, tools_width: 300.0, side_width: 410.0, side_on_right: true };
         let restored = restore(&json!({ "side_panels": panels.to_json(false) }));
