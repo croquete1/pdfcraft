@@ -1480,6 +1480,27 @@ fn data_ops_of_one_event_are_one_datasets_rewrite() {
     assert_eq!(crate::data_of(&doc).unwrap().text_at(&som_to_path("form[0].page1[0].qty[0]")), Some(""));
 }
 
+/// #5337: the data wraps the fields in a `RootSub` container the template does not have (XFA
+/// data independence, where a form is filled against an industry-standard schema). Writing a
+/// field's value updates the existing node under the wrapper, rather than adding a flat
+/// `form1/TextField1` beside it, and the unbound `TextField3` is kept.
+#[test]
+fn a_field_binds_to_its_data_node_inside_a_container_the_template_lacks() {
+    let datasets = r##"<xfa:datasets xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/"><xfa:data><form1><RootSub><TextField1>ab</TextField1><TextField2>bb</TextField2><TextField3>cc</TextField3></RootSub></form1></xfa:data></xfa:datasets>"##;
+    let xdp = format!(
+        r##"<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/"><template xmlns="http://www.xfa.org/schema/xfa-template/3.3/"><subform name="form1"><field name="TextField1"><ui><textEdit/></ui></field><field name="TextField2"><ui><textEdit/></ui></field></subform></template>{datasets}</xdp:xdp>"##
+    );
+    let mut doc = Document::open(Arc::new(shell(&xdp))).unwrap();
+    let path = |segs: &[&str]| segs.iter().map(|s| ((*s).to_string(), 0usize)).collect::<Vec<_>>();
+
+    write_data_value(&mut doc, &path(&["form1", "TextField1"]), "XX").unwrap();
+
+    let data = crate::data_of(&doc).unwrap();
+    assert_eq!(data.text_at(&path(&["form1", "RootSub", "TextField1"])), Some("XX"), "the existing node is updated in place");
+    assert!(data.get(&path(&["form1", "TextField1"])).is_none(), "no flat node is added beside the wrapper");
+    assert_eq!(data.text_at(&path(&["form1", "RootSub", "TextField3"])), Some("cc"), "the unbound node is kept");
+}
+
 #[test]
 fn script_buttons_carry_no_javascript_action_for_other_viewers() {
     let mut doc = Document::open(Arc::new(shell(&scripted_template()))).unwrap();
