@@ -157,16 +157,22 @@ pub fn write_data_ops(doc: &mut Document, ops: &[DataOp], reuse: Option<ObjRef>)
     Ok(written)
 }
 
-/// Put `bytes` in the document as a datasets stream: in place of `old` when that is the stream
-/// `reuse` or already an unsaved overlay stream of `doc`, else as a new object.
-fn put_stream(doc: &mut Document, old: Option<&Object>, reuse: Option<ObjRef>, bytes: &[u8]) -> ObjRef {
+/// Put `bytes` in the document as a datasets stream: overwrite `old` in place when it is an
+/// indirect object, else add a new one.
+///
+/// The datasets stream is uniquely owned by the `/XFA` array, so an existing referenced stream
+/// is always overwritten in place — including one from an earlier revision not yet in the
+/// overlay. Adding a fresh object instead repointed the array and left the previous stream
+/// orphaned, one per edit across saves (#5155). `reuse` (a stream this edit already added, so a
+/// later write finds it before the array is re-read) is subsumed by this and no longer consulted.
+fn put_stream(doc: &mut Document, old: Option<&Object>, _reuse: Option<ObjRef>, bytes: &[u8]) -> ObjRef {
     let stream = Object::Stream(Stream::flate(Dict::new(), bytes));
     match old.and_then(Object::as_ref) {
-        Some(r) if reuse == Some(r) || doc.is_edited(r.num) => {
+        Some(r) => {
             doc.set(r, stream);
             r
         }
-        _ => doc.add(stream),
+        None => doc.add(stream),
     }
 }
 

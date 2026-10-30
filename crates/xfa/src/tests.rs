@@ -1458,7 +1458,7 @@ fn data_ops_of_one_event_are_one_datasets_rewrite() {
     ];
     let r = write_data_ops(&mut doc, &ops, None).unwrap();
     assert!(r.written && r.stream.is_some(), "{r:?}");
-    assert_eq!(doc.object_numbers().len(), before + 1, "one new datasets stream");
+    assert_eq!(doc.object_numbers().len(), before, "the datasets stream is overwritten in place, not duplicated");
     let data = crate::data_of(&doc).unwrap();
     assert_eq!(data.text_at(&som_to_path("form[0].page1[0].qty[0]")), Some("7"), "the last value wins");
     assert_eq!(data.count(&som_to_path("form[0].page1[0].table[0]"), "row"), 2);
@@ -1476,7 +1476,7 @@ fn data_ops_of_one_event_are_one_datasets_rewrite() {
     // empty value clears the node.
     let again = write_data_ops(&mut doc, &[DataOp::Value { path: som_to_path("form[0].page1[0].qty[0]"), text: String::new() }], r.stream).unwrap();
     assert_eq!(again.stream, r.stream);
-    assert_eq!(doc.object_numbers().len(), before + 1);
+    assert_eq!(doc.object_numbers().len(), before);
     assert_eq!(crate::data_of(&doc).unwrap().text_at(&som_to_path("form[0].page1[0].qty[0]")), Some(""));
 }
 
