@@ -7,6 +7,9 @@ use super::{
 /// Dragging a navigation header far enough left or right redocks its panel. Small
 /// movements should not unexpectedly rearrange the workspace.
 fn navigation_drag_target(delta_x: f32) -> Option<bool> {
+    if !delta_x.is_finite() {
+        return None;
+    }
     if delta_x <= -120.0 {
         Some(false)
     } else if delta_x >= 120.0 {
@@ -771,5 +774,7 @@ mod sidebar_drag_tests {
         assert_eq!(navigation_drag_target(-119.9), None);
         assert_eq!(navigation_drag_target(119.9), None);
         assert_eq!(navigation_drag_target(f32::NAN), None);
+        assert_eq!(navigation_drag_target(f32::INFINITY), None);
+        assert_eq!(navigation_drag_target(f32::NEG_INFINITY), None);
     }
 }
