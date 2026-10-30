@@ -4,13 +4,29 @@ use super::{
     Align, Align2, Color32, DocInfo, FieldKind, Layout, Nav, PdfCraftApp, Rect, RightPanel, Sense, Stroke, Tokens, human_size, icons, theme, vec2,
 };
 
-/// Draw the selected right-hand panel and apply its navigation, layer, bookmark or edit actions.
+/// Dragging a navigation header far enough left or right redocks its panel. Small
+/// movements should not unexpectedly rearrange the workspace.
+fn navigation_drag_target(delta_x: f32) -> Option<bool> {
+    if !delta_x.is_finite() {
+        return None;
+    }
+    if delta_x <= -120.0 {
+        Some(false)
+    } else if delta_x >= 120.0 {
+        Some(true)
+    } else {
+        None
+    }
+}
+
+/// Draw the selected navigation panel and apply its actions.
 pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let Some((index, id)) = app.active_ids() else { return };
     let Some(panel) = app.right else { return };
     let mut nav: Option<Nav> = None;
     let mut close = false;
+    let mut move_side_to_right = None;
     let mut toggle_layer: Option<(usize, bool)> = None;
     let mut reset_layers = false;
     let mut attachment_action: Option<(usize, bool)> = None; // (index, open instead of save)
@@ -62,7 +78,25 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(tl!(title)).font(theme::semibold(15.5)));
+                            // The title is a drag handle: release it toward the opposite side
+                            // to redock the navigation pane (#5351). Buttons remain clickable.
+                            let handle = ui.add(egui::Label::new(egui::RichText::new(tl!(title)).font(theme::semibold(15.5))).sense(Sense::drag()));
+                            let cursor = if handle.dragged() { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab };
+                            let handle = handle.on_hover_and_drag_cursor(cursor);
+                            // drag_delta() reports only the current frame and is zero on
+                            // drag_stopped(); keep the total displacement during the drag.
+                            let drag_id = ui.scope_id().with(("navigation-header-drag", id.0));
+                            // Discard any displacement retained after an interrupted gesture.
+                            if handle.drag_started() {
+                                ui.data_mut(|data| data.remove_temp::<f32>(drag_id));
+                            }
+                            if let Some(delta) = handle.total_drag_delta() {
+                                ui.data_mut(|data| data.insert_temp(drag_id, delta.x));
+                            }
+                            if handle.drag_stopped() {
+                                let distance = ui.data_mut(|data| data.remove_temp::<f32>(drag_id)).unwrap_or_default();
+                                move_side_to_right = navigation_drag_target(distance);
+                            }
                             if let Some(c) = count {
                                 ui.label(egui::RichText::new(c.to_string()).font(theme::medium(13.0)).color(t.text_faint));
                             }
@@ -372,6 +406,9 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                     }
                 });
             });
+    }
+    if let Some(right) = move_side_to_right {
+        app.side_panels.side_on_right = right;
     }
     if close {
         app.choose_right_panel(None);
@@ -727,5 +764,23 @@ mod field_rows {
         });
         let counted = rx.recv_timeout(std::time::Duration::from_secs(3)).expect("the Fields panel's rows must not take seconds a frame");
         assert_eq!(counted, (PAGES, PAGES * PER_PAGE));
+    }
+}
+
+#[cfg(test)]
+mod sidebar_drag_tests {
+    use super::navigation_drag_target;
+
+    #[test]
+    fn navigation_header_drags_to_either_side_without_accidental_moves() {
+        assert_eq!(navigation_drag_target(-240.0), Some(false));
+        assert_eq!(navigation_drag_target(240.0), Some(true));
+        assert_eq!(navigation_drag_target(-120.0), Some(false));
+        assert_eq!(navigation_drag_target(120.0), Some(true));
+        assert_eq!(navigation_drag_target(-119.9), None);
+        assert_eq!(navigation_drag_target(119.9), None);
+        assert_eq!(navigation_drag_target(f32::NAN), None);
+        assert_eq!(navigation_drag_target(f32::INFINITY), None);
+        assert_eq!(navigation_drag_target(f32::NEG_INFINITY), None);
     }
 }
