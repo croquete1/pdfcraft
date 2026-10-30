@@ -1394,6 +1394,25 @@ fn a_tight_clip_around_an_edited_line_is_widened_to_fit_a_longer_replacement() {
     assert_eq!(first_re_width(&streams(&loose, 0).concat()), Some(600.0), "a loose clip must not be widened");
 }
 
+/// A negative-width clipping rectangle is legal PDF syntax but must not be enlarged in the
+/// positive direction: doing so could shrink the visible area instead of showing more text.
+#[test]
+fn replacing_text_does_not_widen_a_negative_width_clip() {
+    let content = "q 89 698 -17 14 re W n BT /F1 10 Tf 72 702 Td (abc) Tj ET Q";
+    let mut doc = text_page(content);
+    text::replace_line(&mut doc, 0, 0, "abcdefghijklmnop").unwrap();
+    assert_eq!(first_re_width(&streams(&doc, 0).concat()), Some(-17.0));
+}
+
+/// The rectangular bounding box of turned text is not its advance along the baseline.
+#[test]
+fn replacing_turning_text_does_not_widen_a_horizontal_clip() {
+    let content = "q 72 698 17 14 re W n BT /F1 10 Tf 0 1 -1 0 72 702 Tm (abc) Tj ET Q";
+    let mut doc = text_page(content);
+    text::replace_line(&mut doc, 0, 0, "abcdefghijklmnop").unwrap();
+    assert_eq!(first_re_width(&streams(&doc, 0).concat()), Some(17.0));
+}
+
 #[test]
 fn tracked_text_keeps_words_in_paragraphs_and_objects() {
     let expected = "TRACKED SAMPLE TEXT";
