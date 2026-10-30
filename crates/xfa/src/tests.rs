@@ -1480,6 +1480,39 @@ fn data_ops_of_one_event_are_one_datasets_rewrite() {
     assert_eq!(crate::data_of(&doc).unwrap().text_at(&som_to_path("form[0].page1[0].qty[0]")), Some(""));
 }
 
+/// A datasets stream may also be the content of an embedded file. Updating the XFA field
+/// must create a separate datasets stream and must not change that attachment's bytes or dict.
+#[test]
+fn editing_shared_xfa_stream_preserves_embedded_file() {
+    let mut doc = Document::open(Arc::new(static_shell("<form1><page1><name>Ada</name></page1></form1>"))).unwrap();
+    let root = doc.root().unwrap();
+    let catalog = doc.get(root);
+    let acro = doc.resolve(catalog.as_dict().unwrap().get(b"AcroForm").unwrap());
+    let xfa_ref = acro.as_dict().unwrap().get(b"XFA").and_then(Object::as_ref).unwrap();
+    let original_stream = doc.get(xfa_ref);
+
+    let mut ef = Dict::new();
+    ef.set(b"F".to_vec(), Object::Ref(xfa_ref));
+    let mut spec = Dict::new();
+    spec.set(b"Type".to_vec(), Object::name("Filespec"));
+    spec.set(b"EF".to_vec(), Object::Dict(ef));
+    let spec_ref = doc.add(Object::Dict(spec));
+    let mut embedded = Dict::new();
+    embedded.set(
+        b"Names".to_vec(),
+        Object::Array(vec![Object::String(pdfcraft_cos::PdfString::text("datasets.xml")), Object::Ref(spec_ref)]),
+    );
+    let mut names = Dict::new();
+    names.set(b"EmbeddedFiles".to_vec(), Object::Dict(embedded));
+    doc.update_dict(root, |catalog| catalog.set(b"Names".to_vec(), Object::Dict(names))).unwrap();
+
+    let report = write_data_value(&mut doc, &som_to_path("form1[0].page1[0].name[0]"), "Bea").unwrap();
+    assert!(report.written);
+    assert_ne!(report.stream, Some(xfa_ref), "shared XFA must be copied, not overwritten");
+    assert_eq!(doc.get(xfa_ref).as_ref(), original_stream.as_ref(), "the attachment stream and its dictionary must not change");
+    assert!(String::from_utf8_lossy(&xfa_bytes(&doc)).contains("<name>Bea</name>"));
+}
+
 #[test]
 fn script_buttons_carry_no_javascript_action_for_other_viewers() {
     let mut doc = Document::open(Arc::new(shell(&scripted_template()))).unwrap();
