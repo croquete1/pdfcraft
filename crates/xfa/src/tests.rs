@@ -1489,11 +1489,8 @@ fn a_field_binds_to_its_data_node_inside_a_container_the_template_lacks() {
         r##"<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/"><template xmlns="http://www.xfa.org/schema/xfa-template/3.3/"><subform name="form1"><field name="TextField1"><ui><textEdit/></ui></field><field name="TextField2"><ui><textEdit/></ui></field></subform></template>{datasets}</xdp:xdp>"##
     );
     let path = |segs: &[&str]| segs.iter().map(|s| ((*s).to_string(), 0usize)).collect::<Vec<_>>();
-    let fields = vec![FieldDatum {
-        obj: pdfcraft_cos::ObjRef::new(9000, 0),
-        name: "form1[0].TextField1[0]".into(),
-        data: FieldData::Text("XX".into()),
-    }];
+    let fields =
+        vec![FieldDatum { obj: pdfcraft_cos::ObjRef::new(9000, 0), name: "form1[0].TextField1[0]".into(), data: FieldData::Text("XX".into()) }];
 
     let mut field_doc = Document::open(Arc::new(shell(&xdp))).unwrap();
     assert!(write_datasets(&mut field_doc, &fields).unwrap().written);
@@ -1522,8 +1519,16 @@ fn data_binding_does_not_guess_between_equally_named_descendants() {
         children: vec![crate::data::DataNode {
             name: "form1".into(),
             children: vec![
-                crate::data::DataNode { name: "Left".into(), children: vec![crate::data::DataNode { name: "TextField1".into(), text: "A".into(), ..Default::default() }], ..Default::default() },
-                crate::data::DataNode { name: "Right".into(), children: vec![crate::data::DataNode { name: "TextField1".into(), text: "B".into(), ..Default::default() }], ..Default::default() },
+                crate::data::DataNode {
+                    name: "Left".into(),
+                    children: vec![crate::data::DataNode { name: "TextField1".into(), text: "A".into(), ..Default::default() }],
+                    ..Default::default()
+                },
+                crate::data::DataNode {
+                    name: "Right".into(),
+                    children: vec![crate::data::DataNode { name: "TextField1".into(), text: "B".into(), ..Default::default() }],
+                    ..Default::default()
+                },
             ],
             ..Default::default()
         }],

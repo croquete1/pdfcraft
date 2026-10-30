@@ -330,7 +330,8 @@ fn merge_values(src: &str, data: roxmltree::Node, wants: &[Want], edits: &mut Ve
         let leaf = w.path.get(depth..).filter(|r| r.len() == 1 && r[0].1 == 0);
         let bound = if depth == w.path.len() {
             Some(node)
-        } else if w.bind_descendant && have == 0
+        } else if w.bind_descendant
+            && have == 0
             && let Some(r) = leaf
         {
             unique_value_descendant(node, &r[0].0)
