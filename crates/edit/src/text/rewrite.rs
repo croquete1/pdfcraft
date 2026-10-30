@@ -66,6 +66,8 @@ pub(crate) fn replace_line_with_limit(doc: &mut Document, page: usize, line: usi
     // Typed in logical order; drawn left to right (right-to-left runs reversed).
     let shown = crate::bidi::to_visual(&indic_text);
     let reused = font.as_ref().filter(|m| source_encodes(m, &shown));
+    let fallback_shown = crate::bidi::to_visual(&text);
+    let mut fallback_type3 = None;
     let mut substituted = None;
     let mut replacement: Vec<Op> = Vec::new();
     // ' and " also move to the next line; keep that.
@@ -88,7 +90,6 @@ pub(crate) fn replace_line_with_limit(doc: &mut Document, page: usize, line: usi
             target.origin.state.word_spacing,
         )?),
         None => {
-            let fallback_shown = crate::bidi::to_visual(&text);
             if needs_type3(&text) {
                 let fallback = type3_font(doc, &mut fonts_res, &text, source_family(&target.base_font), target.bold, max_glyphs)?;
                 let runs = type3_encode(&fallback, &fallback_shown)
@@ -100,6 +101,7 @@ pub(crate) fn replace_line_with_limit(doc: &mut Document, page: usize, line: usi
                 }
                 replacement.push(Op::new("Tf", vec![Object::name(&target.font), pdfcraft_content::num(size)]));
                 substituted = Some(format!("{} Type3", fallback.family));
+                fallback_type3 = Some(fallback);
             } else {
                 let win = pdfcraft_fonts::win_ansi(&fallback_shown);
                 // WinAnsi turns what it can't show into '?'; refuse rather than print the wrong thing.
@@ -128,14 +130,47 @@ pub(crate) fn replace_line_with_limit(doc: &mut Document, page: usize, line: usi
     // A tight clip rectangle around the original run cuts off a longer replacement, so the new
     // text seems to vanish (#5207). Find the clip still in force at the line, and when it bounds
     // the run, widen it to where the new text now ends.
-    let clip_widen = font.as_ref().filter(|_| target.upright()).and_then(|metrics| {
+    let clip_widen = font.as_ref().and_then(|metrics| {
+        // Tz changes the sign of the actual glyph advance. An upright text matrix alone
+        // cannot establish whether a longer replacement advances toward the clip's right edge.
+        let (dir_x, dir_y) = target.direction();
+        let advance_x = dir_x * target.origin.state.scale;
+        if !(advance_x.is_finite() && advance_x > 1e-6 && dir_y.abs() < 1e-3) {
+            return None;
+        }
         let size = target.origin.state.font.as_ref().map_or(target.size, |(_, s)| *s);
         let space = source_space(doc, &fonts_res, metrics);
         let (cs, ws) = (target.origin.state.char_spacing, target.origin.state.word_spacing);
         let old_indic = if visual_indic { crate::indic::to_visual(&target.text) } else { target.text.clone() };
         let old_shown = crate::bidi::to_visual(&old_indic);
         let w_old = source_width(metrics, &old_shown, size, space, cs, ws);
-        let w_new = source_width(metrics, &shown, size, space, cs, ws);
+        let w_new = if reused.is_some() {
+            source_width(metrics, &shown, size, space, cs, ws)
+        } else {
+            // The replacement runs were encoded in WinAnsi or Type3, not the source font.
+            // Their advances must come from the selected fallback (otherwise unsupported
+            // characters can be measured as zero and the new text remains clipped).
+            let drawn_size = font_size_before(&ops, first).unwrap_or(target.size);
+            let advance = Advance {
+                source: None,
+                type3: fallback_type3.as_ref(),
+                family: source_family(&target.base_font),
+                bold: target.bold,
+                italic: target.italic,
+                size: drawn_size,
+                space,
+                char_spacing: cs,
+                word_spacing: ws,
+                scale: 1.0,
+                k: 1.0,
+            };
+            let mut width = advance.of(&fallback_shown);
+            if fallback_type3.is_none() {
+                // WinAnsi encodes a literal space as byte 32, which is subject to Tw.
+                width += ws * pdfcraft_fonts::win_ansi(&fallback_shown).iter().filter(|&&b| b == b' ').count() as f64;
+            }
+            width
+        };
         if !(w_new > w_old + 1e-3 && w_old > 1e-3) {
             return None;
         }
