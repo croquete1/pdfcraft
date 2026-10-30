@@ -194,6 +194,18 @@ pub(crate) fn replace_line_with_limit(doc: &mut Document, page: usize, line: usi
         if new_r <= clip_r {
             return None;
         }
+        // Widening into the space of other text would draw the new text over it. Leave the clip
+        // alone when another line on the page, in the same band of height, starts inside the span
+        // the widened clip would add.
+        let [_, ty0, _, ty1] = target.rect;
+        let crowded = text_lines(doc, page)
+            .ok()?
+            .iter()
+            .enumerate()
+            .any(|(k, o)| k != line && o.rect[0] < new_r && o.rect[2] > clip_r && o.rect[1] < ty1 && o.rect[3] > ty0);
+        if crowded {
+            return None;
+        }
         let add = (new_r - clip_r) / ctm.0[0];
         if !add.is_finite() || add <= 0.0 {
             return None;

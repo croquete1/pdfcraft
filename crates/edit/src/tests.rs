@@ -1446,6 +1446,16 @@ fn clipped_text_uses_type3_fallback_advances_for_longer_replacements() {
 }
 
 #[test]
+fn a_tight_clip_is_not_widened_over_text_beside_it() {
+    // #5207: the run's neighbour sits on the same band, just past the clip. Widening the clip for a
+    // longer replacement would draw it over that neighbour, so the clip stays as it was.
+    let content = "q 72 698 17 14 re W n BT /F1 10 Tf 72 702 Td (abc) Tj ET Q BT /F1 10 Tf 140 702 Td (xyz) Tj ET";
+    let mut doc = text_page(content);
+    text::replace_line(&mut doc, 0, 0, "abcdefghijklmnop").unwrap();
+    assert_eq!(first_re_width(&streams(&doc, 0).concat()), Some(17.0), "a neighbour in the way keeps the clip");
+}
+
+#[test]
 fn tracked_text_keeps_words_in_paragraphs_and_objects() {
     let expected = "TRACKED SAMPLE TEXT";
     for spacing in [1.5, 2.0001, 3.0] {
