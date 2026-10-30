@@ -258,7 +258,11 @@ fn migrate(old: &Value) -> Option<Restored> {
     let mut panels = SidePanels::default();
     let (tools_right, tools_open, tools_width) = old_panel(old, "tools");
     let (side_right, side_open, side_width) = old_panel(old, "inspector");
-    panels.side_on_right = side_right;
+    // An old layout with no Inspector placement must keep the right-hand default.
+    // A recorded hidden/visible placement, however, must survive migration.
+    if side_open || hidden_place(old, "inspector").is_some() {
+        panels.side_on_right = side_right;
+    }
     if tools_right {
         panels.tools_side = ToolsSide::Right;
     }
@@ -560,6 +564,14 @@ mod tests {
         assert!(!restored.panels.side_on_right);
         assert_eq!(restored.panels.side_width, 360.0);
         assert!(!restored.side_closed);
+    }
+
+    #[test]
+    fn migrating_without_an_inspector_placement_keeps_the_default_side() {
+        let old = workspace(tabs(&["canvas"]), json!([]), json!([]));
+        let restored = restore(&old);
+        assert!(restored.panels.side_on_right);
+        assert!(restored.side_closed);
     }
 
     #[test]
