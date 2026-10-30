@@ -470,7 +470,7 @@ fn app_creator<'a>(
         // A new Windows process launched by a document opener can start behind the foreground
         // application. Request the same taskbar attention as a handed-off open (#5344).
         // The shell ignores the request if the PdfCraft window is already focused.
-        let command_line_open = cfg!(target_os = "windows") && !create_images && !files.is_empty();
+        let mut command_line_open = false;
         if create_images {
             if let Err(e) = app.begin_image_import_paths(&files) {
                 app.notify(e);
@@ -480,7 +480,10 @@ fn app_creator<'a>(
             // the command line open after them, in front (#442).
             app.reopen_last_files(&files);
             for f in files {
-                app.open_path(&f);
+                let outcome = app.open_path(&f);
+                if cfg!(target_os = "windows") && outcome != pdfcraft_ui_egui::OpenOutcome::Failed {
+                    command_line_open = true;
+                }
             }
         }
         for (k, v) in options {
