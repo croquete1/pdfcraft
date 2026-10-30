@@ -89,7 +89,7 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                             if handle.drag_started() {
                                 let origin = ui.input(|i| i.pointer.press_origin());
                                 ui.data_mut(|data| {
-                                    data.remove_temp::<egui::Pos2>(drag_id);
+                                    let _ = data.remove_temp::<egui::Pos2>(drag_id);
                                     if let Some(origin) = origin {
                                         data.insert_temp(drag_id, origin);
                                     }
