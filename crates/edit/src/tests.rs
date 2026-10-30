@@ -1413,6 +1413,38 @@ fn replacing_turning_text_does_not_widen_a_horizontal_clip() {
     assert_eq!(first_re_width(&streams(&doc, 0).concat()), Some(17.0));
 }
 
+/// A negative Tz reverses the glyph advance even if the text matrix itself is upright.
+/// Increasing the rectangle to its right would hide more of the replacement, not show it.
+#[test]
+fn a_negative_horizontal_text_scale_does_not_widen_the_wrong_edge() {
+    let content = "q 72 698 17 14 re W n BT /F1 10 Tf -100 Tz 89 702 Td (abc) Tj ET Q";
+    let mut doc = text_page(content);
+    text::replace_line(&mut doc, 0, 0, "abcdefghijklmnop").unwrap();
+    assert_eq!(first_re_width(&streams(&doc, 0).concat()), Some(17.0));
+}
+
+/// Mirroring the text matrix and horizontal scale together yields rightward advance again.
+#[test]
+fn two_horizontal_reflections_allow_widening_on_the_right() {
+    let content = "q 72 698 17 14 re W n BT /F1 10 Tf -100 Tz -1 0 0 1 72 702 Tm (abc) Tj ET Q";
+    let mut doc = text_page(content);
+    text::replace_line(&mut doc, 0, 0, "abcdefghijklmnop").unwrap();
+    let width = first_re_width(&streams(&doc, 0).concat()).unwrap();
+    assert!(width > 17.0, "two reflections restore rightward advance: {width}");
+}
+
+/// When a replacement requires Type3 glyphs the original font cannot encode, its original
+/// metrics cannot be used to measure the replacement (they would discard unsupported glyphs).
+#[test]
+fn clipped_text_uses_type3_fallback_advances_for_longer_replacements() {
+    let content = "q 72 698 17 14 re W n BT /F1 10 Tf 72 702 Td (abc) Tj ET Q";
+    let mut doc = text_page(content);
+    let changed = text::replace_line(&mut doc, 0, 0, "ўзбекча ғўза ўзбекча ғўза").unwrap();
+    assert_eq!(changed.substituted.as_deref(), Some("Inter Type3"));
+    let width = first_re_width(&streams(&doc, 0).concat()).unwrap();
+    assert!(width > 17.0, "a long Type3 replacement must expand its tight clipping rectangle: {width}");
+}
+
 #[test]
 fn tracked_text_keeps_words_in_paragraphs_and_objects() {
     let expected = "TRACKED SAMPLE TEXT";
