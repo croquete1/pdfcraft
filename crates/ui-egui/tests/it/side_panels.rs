@@ -187,6 +187,24 @@ fn dragging_navigation_header_changes_side_and_preserves_it() {
     assert_eq!(h.state().side_panels.tools_side, tools_side);
 }
 
+/// The release event can cross the docking threshold without a preceding move event.
+#[test]
+fn navigation_drag_uses_release_position_to_choose_side() {
+    let mut h = harness(|app| app.set_option("panel", "bookmarks").unwrap());
+    let start = navigation_title(&h).center();
+    h.hover_at(start);
+    h.run_steps(1);
+    h.drag_at(start);
+    h.run_steps(1);
+    h.hover_at(start - egui::vec2(100.0, 0.0));
+    h.run_steps(1);
+    assert!(h.state().side_panels.side_on_right);
+    // The last move is delivered by the button release, not by hover_at.
+    h.drop_at(start - egui::vec2(240.0, 0.0));
+    h.run_steps(4);
+    assert!(!h.state().side_panels.side_on_right);
+}
+
 /// Moving navigation to the left must not change the independently configured Tools edge.
 #[test]
 fn left_navigation_does_not_move_right_docked_tools() {

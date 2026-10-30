@@ -205,8 +205,9 @@ fn find(node: &Value, panel: &str, depth: usize) -> Option<Found> {
     let split = node.get("Split")?;
     for (key, second) in [("first", false), ("second", true)] {
         if let Some(mut found) = split.get(key).and_then(|child| find(child, panel, depth + 1)) {
-            // A panel sharing its group was placed by its group, not by a split.
-            if found.alone && found.split.is_none() {
+            // Shared tab groups still have a parent edge. Their split width is
+            // not the width of any individual pane in that group.
+            if found.split.is_none() {
                 let horizontal = split.get("axis").and_then(Value::as_str) == Some("Horizontal");
                 found.split = Some(Split { horizontal, second, size: fixed_size(split.get("size"), second) });
             }
@@ -230,24 +231,29 @@ fn floating_contains(old: &Value, panel: &str) -> bool {
     })
 }
 
-/// A panel of the old layout: on the right edge, open, and its width where the layout stated it
-/// in points. A floating or tabbed panel counts as on the left, as the old Tools side reading did.
-fn old_panel(old: &Value, panel: &str) -> (bool, bool, Option<f64>) {
+/// A panel of the old layout: its explicit edge (when known), open state and
+/// individual width. A shared tab group's split width is not an individual pane width.
+fn old_panel(old: &Value, panel: &str, preserve_shared_edge: bool) -> (Option<bool>, bool, Option<f64>) {
     let root = old.get("layout").and_then(|l| l.get("root"));
     if let Some(found) = root.and_then(|root| find(root, panel, 0)) {
         return match found.split {
-            Some(split) if split.horizontal => (split.second, true, split.size),
-            _ => (false, true, None),
+            Some(split) if split.horizontal && (found.alone || preserve_shared_edge) => {
+                (Some(split.second), true, if found.alone { split.size } else { None })
+            }
+            _ => (None, true, None),
         };
     }
     if floating_contains(old, panel) {
-        return (false, true, None);
+        return (None, true, None);
     }
-    let Some(place) = hidden_place(old, panel) else { return (false, false, None) };
-    let right = place.get("placement").and_then(|p| p.get("Split")).and_then(Value::as_str) == Some("Right");
-    let left = place.get("placement").and_then(|p| p.get("Split")).and_then(Value::as_str) == Some("Left");
-    let size = if right || left { fixed_size(place.get("size"), right) } else { None };
-    (right, false, size)
+    let Some(place) = hidden_place(old, panel) else { return (None, false, None) };
+    let edge = match place.get("placement").and_then(|p| p.get("Split")).and_then(Value::as_str) {
+        Some("Right") => Some(true),
+        Some("Left") => Some(false),
+        _ => None,
+    };
+    let size = edge.and_then(|right| fixed_size(place.get("size"), right));
+    (edge, false, size)
 }
 
 /// Reads the old docking layout (craft-ui's `Workspace`) as plain JSON. `None` when it has no
@@ -255,14 +261,13 @@ fn old_panel(old: &Value, panel: &str) -> (bool, bool, Option<f64>) {
 fn migrate(old: &Value) -> Option<Restored> {
     find(old.get("layout")?.get("root")?, "canvas", 0)?;
     let mut panels = SidePanels::default();
-    let (tools_right, tools_open, tools_width) = old_panel(old, "tools");
-    let (side_right, side_open, side_width) = old_panel(old, "inspector");
-    // An old layout with no Inspector placement must keep the right-hand default.
-    // A recorded hidden/visible placement, however, must survive migration.
-    if side_open || hidden_place(old, "inspector").is_some() {
-        panels.side_on_right = side_right;
+    let (tools_right, tools_open, tools_width) = old_panel(old, "tools", false);
+    let (side_right, side_open, side_width) = old_panel(old, "inspector", true);
+    // An unknown, floating or unsupported placement keeps the default side.
+    if let Some(right) = side_right {
+        panels.side_on_right = right;
     }
-    if tools_right {
+    if tools_right == Some(true) {
         panels.tools_side = ToolsSide::Right;
     }
     if let Some(width) = tools_width.and_then(|w| clamp_width(Pane::Tools, w)) {
@@ -577,6 +582,49 @@ mod tests {
         let old = workspace(tabs(&["canvas"]), json!([]), json!([]));
         let restored = restore(&old);
         assert!(restored.panels.side_on_right);
+        assert!(restored.side_closed);
+    }
+
+    #[test]
+    fn shared_inspector_group_keeps_right_edge_without_copying_split_width() {
+        // A shared tab group knows its parent's side, but neither pane owns its width.
+        let old = workspace(
+            split(json!({"FixedSecond": 390.0}), tabs(&["canvas"]), tabs(&["inspector", "tools"])),
+            json!([]),
+            json!([]),
+        );
+        let restored = restore(&old);
+        assert!(restored.panels.side_on_right);
+        assert_eq!(restored.panels.side_width, SIDE_WIDTH);
+        assert_eq!(restored.panels.tools_side, ToolsSide::Left);
+        assert_eq!(restored.panels.tools_width, TOOLS_WIDTH);
+        assert_eq!((restored.tools_open, restored.side_closed), (Some(true), false));
+    }
+
+    #[test]
+    fn shared_inspector_group_keeps_left_edge_without_copying_split_width() {
+        let old = workspace(
+            split(json!({"FixedFirst": 380.0}), tabs(&["inspector", "tools"]), tabs(&["canvas"])),
+            json!([]),
+            json!([]),
+        );
+        let restored = restore(&old);
+        assert!(!restored.panels.side_on_right);
+        assert_eq!(restored.panels.side_width, SIDE_WIDTH);
+        assert_eq!(restored.panels.tools_side, ToolsSide::Left);
+        assert_eq!(restored.panels.tools_width, TOOLS_WIDTH);
+    }
+
+    #[test]
+    fn hidden_inspector_without_explicit_edge_uses_right_default() {
+        let old = workspace(
+            tabs(&["canvas"]),
+            json!([]),
+            json!([["inspector", {"placement": {"Tab": "canvas"}, "size": {"FixedSecond": 380.0}}]]),
+        );
+        let restored = restore(&old);
+        assert!(restored.panels.side_on_right);
+        assert_eq!(restored.panels.side_width, SIDE_WIDTH);
         assert!(restored.side_closed);
     }
 

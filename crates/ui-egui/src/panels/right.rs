@@ -83,19 +83,22 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                             let handle = ui.add(egui::Label::new(egui::RichText::new(tl!(title)).font(theme::semibold(15.5))).sense(Sense::drag()));
                             let cursor = if handle.dragged() { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab };
                             let handle = handle.on_hover_and_drag_cursor(cursor);
-                            // drag_delta() reports only the current frame and is zero on
-                            // drag_stopped(); keep the total displacement during the drag.
+                            // The pointer's press origin is cleared by egui on release.
+                            // Keep it for the gesture so the release frame counts as movement.
                             let drag_id = ui.scope_id().with(("navigation-header-drag", id.0));
-                            // Discard any displacement retained after an interrupted gesture.
                             if handle.drag_started() {
-                                ui.data_mut(|data| data.remove_temp::<f32>(drag_id));
-                            }
-                            if let Some(delta) = handle.total_drag_delta() {
-                                ui.data_mut(|data| data.insert_temp(drag_id, delta.x));
+                                let origin = ui.input(|i| i.pointer.press_origin());
+                                ui.data_mut(|data| {
+                                    data.remove_temp::<egui::Pos2>(drag_id);
+                                    if let Some(origin) = origin {
+                                        data.insert_temp(drag_id, origin);
+                                    }
+                                });
                             }
                             if handle.drag_stopped() {
-                                let distance = ui.data_mut(|data| data.remove_temp::<f32>(drag_id)).unwrap_or_default();
-                                move_side_to_right = navigation_drag_target(distance);
+                                let origin = ui.data_mut(|data| data.remove_temp::<egui::Pos2>(drag_id));
+                                let released = ui.input(|i| i.pointer.interact_pos());
+                                move_side_to_right = origin.zip(released).and_then(|(start, end)| navigation_drag_target(end.x - start.x));
                             }
                             if let Some(c) = count {
                                 ui.label(egui::RichText::new(c.to_string()).font(theme::medium(13.0)).color(t.text_faint));
