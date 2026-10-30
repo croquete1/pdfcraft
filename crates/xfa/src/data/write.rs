@@ -157,53 +157,57 @@ pub fn write_data_ops(doc: &mut Document, ops: &[DataOp], reuse: Option<ObjRef>)
     Ok(written)
 }
 
-/// Whether an XFA stream is also referenced elsewhere in the live PDF object graph.
+/// Whether each indirect object on the AcroForm → XFA → datasets path is exclusive.
 ///
-/// Rewriting an aliased stream in place would also change an attachment or another PDF object
-/// that shares its reference. Scan only reachable objects, without decoding streams, and stop at
-/// a fixed work budget. An incomplete scan conservatively requires copy-on-write.
-fn stream_is_shared(doc: &Document, target: ObjRef) -> bool {
-    const MAX_WALKED_OBJECTS: usize = 100_000;
+/// Count incoming edges, including references from multiple distinct parents, while expanding
+/// each reachable indirect object only once. A shared ancestor must be copied before an XFA
+/// edit, even if the datasets stream has only one *direct* incoming edge (#5155).
+///
+/// Unknown or over-budget graphs are treated as shared, never as safe to overwrite.
+fn exclusive_refs(doc: &Document, refs: [Option<ObjRef>; 3]) -> [bool; 3] {
+    const MAX_WALK: usize = 100_000;
 
-    let mut stack: Vec<Object> = doc.trailer().iter().map(|(_, value)| value.clone()).collect();
+    let mut stack: Vec<Object> = doc.trailer().iter().map(|(_, v)| v.clone()).collect();
     let mut visited = std::collections::HashSet::new();
-    let mut references = 0usize;
+    let mut incoming = [0u8; 3];
     let mut walked = 0usize;
     while let Some(obj) = stack.pop() {
-        walked += 1;
-        if walked > MAX_WALKED_OBJECTS {
-            return true;
+        walked = walked.saturating_add(1);
+        if walked > MAX_WALK {
+            return [false; 3];
         }
-        match obj {
+        let children = match obj {
             Object::Ref(r) => {
-                if r == target {
-                    references += 1;
-                    if references > 1 {
-                        return true;
+                for (i, tracked) in refs.iter().enumerate() {
+                    if *tracked == Some(r) {
+                        incoming[i] = incoming[i].saturating_add(1);
                     }
                 }
                 if visited.insert(r.num) {
-                    stack.push((*doc.get(r)).clone());
+                    vec![(*doc.get(r)).clone()]
+                } else {
+                    Vec::new()
                 }
             }
-            Object::Array(values) => stack.extend(values),
-            Object::Dict(dict) => stack.extend(dict.iter().map(|(_, value)| value.clone())),
-            Object::Stream(stream) => stack.extend(stream.dict.iter().map(|(_, value)| value.clone())),
-            _ => {}
+            Object::Array(a) => a,
+            Object::Dict(d) => d.iter().map(|(_, v)| v.clone()).collect(),
+            Object::Stream(s) => s.dict.iter().map(|(_, v)| v.clone()).collect(),
+            _ => Vec::new(),
+        };
+        if stack.len().saturating_add(children.len()) > MAX_WALK {
+            return [false; 3];
         }
+        stack.extend(children);
     }
-    // No reachable reference to the stream is also an unsafe basis for an in-place rewrite.
-    references != 1
+    std::array::from_fn(|i| refs[i].is_none_or(|_| incoming[i] == 1))
 }
 
-/// Put `bytes` in the document as a datasets stream. Reuse an exclusive indirect object,
-/// including one from an earlier revision, to avoid orphaning it across saves (#5155).
-/// A stream also referenced elsewhere is instead copied, so its other users remain intact.
-fn put_stream(doc: &mut Document, old: Option<&Object>, _reuse: Option<ObjRef>, bytes: &[u8]) -> ObjRef {
-    let shared = old.and_then(Object::as_ref).is_some_and(|r| stream_is_shared(doc, r));
+/// Store the updated datasets as a stream. Only overwrite an indirect stream when the complete
+/// object path is exclusive; a shared ancestor implies another path still uses the old value.
+fn put_stream(doc: &mut Document, old: Option<&Object>, _reuse: Option<ObjRef>, bytes: &[u8], exclusive: bool) -> ObjRef {
     let stream = Object::Stream(Stream::flate(Dict::new(), bytes));
     match old.and_then(Object::as_ref) {
-        Some(r) if !shared => {
+        Some(r) if exclusive => {
             doc.set(r, stream);
             r
         }
@@ -226,6 +230,7 @@ pub(super) fn rewrite(doc: &mut Document, ops: &[Op], reuse: Option<ObjRef>) -> 
     let Some(mut acro) = doc.resolve(&acro_obj).as_dict().cloned() else { return Ok(report) };
     let Some(xfa) = acro.get(b"XFA").cloned() else { return Ok(report) };
     let warnings = &mut report.warnings;
+    let mut acro_exclusive = true;
     match &*doc.resolve(&xfa) {
         Object::Array(items) => {
             let mut items = items.clone();
@@ -240,7 +245,9 @@ pub(super) fn rewrite(doc: &mut Document, ops: &[Op], reuse: Option<ObjRef>) -> 
                     if !readable(&t, Within::Packet, warnings) {
                         return Ok(report);
                     }
-                    let r = put_stream(doc, Some(&existing), reuse, &encode(&t, encoding));
+                    let exclusive = exclusive_refs(doc, [acro_ref, xfa.as_ref(), existing.as_ref()]);
+                    acro_exclusive = exclusive[0];
+                    let r = put_stream(doc, Some(&existing), reuse, &encode(&t, encoding), exclusive.into_iter().all(|v| v));
                     report.stream = Some(r);
                     if let Some(slot) = items.get_mut(i + 1) {
                         *slot = Object::Ref(r);
@@ -256,6 +263,7 @@ pub(super) fn rewrite(doc: &mut Document, ops: &[Op], reuse: Option<ObjRef>) -> 
                     if !readable(&text, Within::Packet, warnings) {
                         return Ok(report);
                     }
+                    acro_exclusive = exclusive_refs(doc, [acro_ref, xfa.as_ref(), None])[0];
                     let r = doc.add(Object::Stream(Stream::flate(Dict::new(), text.as_bytes())));
                     report.stream = Some(r);
                     let pos = items.iter().position(|n| n.as_string().is_some_and(|s| s.to_text() == "postamble")).unwrap_or(items.len());
@@ -271,14 +279,21 @@ pub(super) fn rewrite(doc: &mut Document, ops: &[Op], reuse: Option<ObjRef>) -> 
             if !readable(&new, Within::Xdp, warnings) {
                 return Ok(report);
             }
-            let r = put_stream(doc, Some(&xfa), reuse, &encode(&new, encoding));
+            let exclusive = exclusive_refs(doc, [acro_ref, xfa.as_ref(), None]);
+            acro_exclusive = exclusive[0];
+            let r = put_stream(doc, Some(&xfa), reuse, &encode(&new, encoding), exclusive.into_iter().all(|v| v));
             report.stream = Some(r);
             acro.set(b"XFA".to_vec(), Object::Ref(r));
         }
         _ => return Ok(report),
     }
     match acro_ref {
-        Some(ar) => doc.set(ar, Object::Dict(acro)),
+        Some(ar) if acro_exclusive => doc.set(ar, Object::Dict(acro)),
+        Some(_) => {
+            // Another live path owns the old AcroForm. Copy this branch of the object graph.
+            let replacement = doc.add(Object::Dict(acro));
+            doc.update_dict(root, |c| c.set(b"AcroForm".to_vec(), Object::Ref(replacement)))?;
+        },
         None => doc.update_dict(root, |c| c.set(b"AcroForm".to_vec(), Object::Dict(acro)))?,
     }
     report.written = true;
