@@ -326,8 +326,11 @@ fn appearance_menu(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
     }
 }
 
-/// A tab's chrome around its name: the icon on the left, the close button on the right.
-const TAB_CHROME: f32 = 64.0;
+/// Keep the icon and close button clear of the rounded hover background (#2657).
+const TAB_EDGE_PADDING: f32 = 10.0;
+/// Left icon (16), icon-to-text gap (6), text-to-close gap (10) and close button (20),
+/// plus the same inset at both ends.
+const TAB_CHROME: f32 = 2.0 * TAB_EDGE_PADDING + 52.0;
 /// The narrowest a tab shrinks to before the strip scrolls: room for most of a name.
 const TAB_MIN_WIDTH: f32 = 180.0;
 /// The arrows either side of tabs that don't fit.
@@ -450,14 +453,14 @@ fn tab(ui: &mut egui::Ui, spec: TabSpec<'_>, close: &mut Option<usize>) -> egui:
         }
         icons::paint(
             ui,
-            Rect::from_min_size(rect.min + vec2(6.0, (height - 16.0) / 2.0), vec2(16.0, 16.0)),
+            Rect::from_min_size(rect.min + vec2(TAB_EDGE_PADDING, (height - 16.0) / 2.0), vec2(16.0, 16.0)),
             icon,
             15.0,
             if active { t.accent } else { t.text_muted },
         );
-        ui.painter().galley(rect.min + vec2(28.0, (rect.height() - label_galley.size().y) / 2.0), label_galley.clone(), label_color);
+        ui.painter().galley(rect.min + vec2(TAB_EDGE_PADDING + 22.0, (rect.height() - label_galley.size().y) / 2.0), label_galley.clone(), label_color);
     });
-    let x_rect = Rect::from_center_size(rect.right_center() - vec2(16.0, 0.0), vec2(20.0, 20.0));
+    let x_rect = Rect::from_center_size(rect.right_center() - vec2(TAB_EDGE_PADDING + 10.0, 0.0), vec2(20.0, 20.0));
     let x = ui.interact(x_rect, id.with("close"), Sense::click());
     let x_press = theme::Press::track(ui, &x);
     x_press.wash(ui, x_rect, 4, false);
@@ -799,7 +802,20 @@ mod page_position_tests {
 
 #[cfg(test)]
 mod tab_widths {
-    use super::{MAC_CONTENT_LEFT, MAC_LIGHT, MAC_LIGHT_PITCH, MAC_LIGHTS_LEFT, MAC_TITLE_BAR, tab_cap};
+    use super::{MAC_CONTENT_LEFT, MAC_LIGHT, MAC_LIGHT_PITCH, MAC_LIGHTS_LEFT, MAC_TITLE_BAR, TAB_CHROME, TAB_EDGE_PADDING, tab_cap};
+
+    /// The icon and close button keep a real inset inside the hover background.
+    /// The calculated tab width reserves the same space as the painter (#2657).
+    #[test]
+    fn tab_content_keeps_symmetric_edge_padding() {
+        let icon_start = TAB_EDGE_PADDING;
+        let text_start = icon_start + 16.0 + 6.0;
+        let close_start = TAB_CHROME - TAB_EDGE_PADDING - 20.0;
+        assert!(TAB_EDGE_PADDING >= 10.0, "tab content must clear the rounded hover corners");
+        assert_eq!(text_start, TAB_EDGE_PADDING + 22.0);
+        assert_eq!(close_start - text_start, 10.0, "text must not run under the close button");
+        assert_eq!(TAB_CHROME, 72.0);
+    }
 
     /// Tabs that fit keep their own widths.
     #[test]
