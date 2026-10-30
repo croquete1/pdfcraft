@@ -458,7 +458,11 @@ fn tab(ui: &mut egui::Ui, spec: TabSpec<'_>, close: &mut Option<usize>) -> egui:
             15.0,
             if active { t.accent } else { t.text_muted },
         );
-        ui.painter().galley(rect.min + vec2(TAB_EDGE_PADDING + 22.0, (rect.height() - label_galley.size().y) / 2.0), label_galley.clone(), label_color);
+        ui.painter().galley(
+            rect.min + vec2(TAB_EDGE_PADDING + 22.0, (rect.height() - label_galley.size().y) / 2.0),
+            label_galley.clone(),
+            label_color,
+        );
     });
     let x_rect = Rect::from_center_size(rect.right_center() - vec2(TAB_EDGE_PADDING + 10.0, 0.0), vec2(20.0, 20.0));
     let x = ui.interact(x_rect, id.with("close"), Sense::click());
@@ -808,13 +812,15 @@ mod tab_widths {
     /// The calculated tab width reserves the same space as the painter (#2657).
     #[test]
     fn tab_content_keeps_symmetric_edge_padding() {
-        let icon_start = TAB_EDGE_PADDING;
-        let text_start = icon_start + 16.0 + 6.0;
-        let close_start = TAB_CHROME - TAB_EDGE_PADDING - 20.0;
-        assert!(TAB_EDGE_PADDING >= 10.0, "tab content must clear the rounded hover corners");
-        assert_eq!(text_start, TAB_EDGE_PADDING + 22.0);
-        assert_eq!(close_start - text_start, 10.0, "text must not run under the close button");
-        assert_eq!(TAB_CHROME, 72.0);
+        let tab = egui::Rect::from_min_size(egui::pos2(37.0, 0.0), egui::vec2(200.0, 32.0));
+        let icon_start = tab.left() + TAB_EDGE_PADDING;
+        let text_start = icon_start + 22.0;
+        let close_start = tab.right() - TAB_EDGE_PADDING - 20.0;
+        let available_text = tab.width() - TAB_CHROME;
+        assert_eq!(icon_start - tab.left(), 10.0);
+        assert_eq!(text_start - (icon_start + 16.0), 6.0);
+        assert_eq!(close_start - (text_start + available_text), 10.0);
+        assert_eq!(tab.right() - (close_start + 20.0), 10.0);
     }
 
     /// Tabs that fit keep their own widths.
