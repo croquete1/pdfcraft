@@ -14,7 +14,14 @@ const MAX_DEPTH: usize = 64;
 const MAX_FILES: usize = 5_000;
 const MAX_MATCHES: usize = 2_000;
 const MAX_WARNINGS: usize = 100;
+const MAX_WARNING_BYTES: usize = 1_024;
 const MAX_QUERY_BYTES: usize = 4_096;
+
+/// Bound untrusted file and PDF error messages without cutting a UTF-8 character.
+fn capped_warning(error: &str) -> (&str, bool) {
+    let end = error.floor_char_boundary(error.len().min(MAX_WARNING_BYTES));
+    (error.get(..end).unwrap_or_default(), end < error.len())
+}
 
 /// Never follow links, including Windows reparse points and directory junctions.
 fn linked(metadata: &std::fs::Metadata) -> bool {
@@ -173,7 +180,9 @@ impl Automation {
                 Err(err) => {
                     warning_count = warning_count.saturating_add(1);
                     if warnings.len() < MAX_WARNINGS {
-                        warnings.push(json!({"file":path_str,"error":err.to_string()}));
+                        let message = err.to_string();
+                        let (error, error_truncated) = capped_warning(&message);
+                        warnings.push(json!({"file":path_str,"error":error,"error_truncated":error_truncated}));
                     }
                 }
             }
@@ -194,6 +203,19 @@ impl Automation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn warnings_are_bounded_without_splitting_utf8() {
+        let message = format!("{}é", "x".repeat(MAX_WARNING_BYTES - 1));
+        let (warning, truncated) = capped_warning(&message);
+        assert_eq!(warning.len(), MAX_WARNING_BYTES - 1);
+        assert!(truncated);
+        assert_eq!(message.get(..warning.len()), Some(warning));
+
+        let (warning, truncated) = capped_warning("short error");
+        assert_eq!(warning, "short error");
+        assert!(!truncated);
+    }
 
     #[test]
     fn folder_discovery_is_sorted_nonrecursive_by_default_and_ignores_extensions() {
