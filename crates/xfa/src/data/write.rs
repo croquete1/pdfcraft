@@ -309,7 +309,7 @@ pub(super) fn rewrite(doc: &mut Document, ops: &[Op], reuse: Option<ObjRef>) -> 
             // Another live path owns the old AcroForm. Copy this branch of the object graph.
             let replacement = doc.add(Object::Dict(acro));
             doc.update_dict(root, |c| c.set(b"AcroForm".to_vec(), Object::Ref(replacement)))?;
-        },
+        }
         None => doc.update_dict(root, |c| c.set(b"AcroForm".to_vec(), Object::Dict(acro)))?,
     }
     report.written = true;

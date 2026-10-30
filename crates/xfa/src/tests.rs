@@ -1498,10 +1498,7 @@ fn editing_shared_xfa_stream_preserves_embedded_file() {
     spec.set(b"EF".to_vec(), Object::Dict(ef));
     let spec_ref = doc.add(Object::Dict(spec));
     let mut embedded = Dict::new();
-    embedded.set(
-        b"Names".to_vec(),
-        Object::Array(vec![Object::String(pdfcraft_cos::PdfString::text("datasets.xml")), Object::Ref(spec_ref)]),
-    );
+    embedded.set(b"Names".to_vec(), Object::Array(vec![Object::String(pdfcraft_cos::PdfString::text("datasets.xml")), Object::Ref(spec_ref)]));
     let mut names = Dict::new();
     names.set(b"EmbeddedFiles".to_vec(), Object::Dict(embedded));
     doc.update_dict(root, |catalog| catalog.set(b"Names".to_vec(), Object::Dict(names))).unwrap();
@@ -1525,7 +1522,8 @@ fn editing_xfa_does_not_modify_a_shared_acroform_or_its_stream() {
     doc.update_dict(root, |catalog| {
         catalog.set(b"AcroForm".to_vec(), Object::Ref(acro_ref));
         catalog.set(b"OtherAcroForm".to_vec(), Object::Ref(acro_ref));
-    }).unwrap();
+    })
+    .unwrap();
 
     let result = write_data_value(&mut doc, &som_to_path("form1[0].page1[0].name[0]"), "Bea").unwrap();
     assert!(result.written);
@@ -1546,16 +1544,14 @@ fn editing_xfa_keeps_an_aliased_xfa_array_and_its_datasets_stream() {
     let mut acro = doc.get(root).as_dict().unwrap().get(b"AcroForm").unwrap().as_dict().unwrap().clone();
     let old_xfa = acro.get(b"XFA").and_then(Object::as_ref).unwrap();
     let old_stream = doc.get(old_xfa);
-    let array = Object::Array(vec![
-        Object::String(pdfcraft_cos::PdfString::text("datasets")),
-        Object::Ref(old_xfa),
-    ]);
+    let array = Object::Array(vec![Object::String(pdfcraft_cos::PdfString::text("datasets")), Object::Ref(old_xfa)]);
     let array_ref = doc.add(array.clone());
     acro.set(b"XFA".to_vec(), Object::Ref(array_ref));
     doc.update_dict(root, |catalog| {
         catalog.set(b"AcroForm".to_vec(), Object::Dict(acro));
         catalog.set(b"OtherXFA".to_vec(), Object::Ref(array_ref));
-    }).unwrap();
+    })
+    .unwrap();
 
     let result = write_data_value(&mut doc, &som_to_path("form1[0].page1[0].name[0]"), "Bea").unwrap();
     assert!(result.written);
