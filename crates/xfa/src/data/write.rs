@@ -157,22 +157,57 @@ pub fn write_data_ops(doc: &mut Document, ops: &[DataOp], reuse: Option<ObjRef>)
     Ok(written)
 }
 
-/// Put `bytes` in the document as a datasets stream: overwrite `old` in place when it is an
-/// indirect object, else add a new one.
+/// Whether an XFA stream is also referenced elsewhere in the live PDF object graph.
 ///
-/// The datasets stream is uniquely owned by the `/XFA` array, so an existing referenced stream
-/// is always overwritten in place — including one from an earlier revision not yet in the
-/// overlay. Adding a fresh object instead repointed the array and left the previous stream
-/// orphaned, one per edit across saves (#5155). `reuse` (a stream this edit already added, so a
-/// later write finds it before the array is re-read) is subsumed by this and no longer consulted.
+/// Rewriting an aliased stream in place would also change an attachment or another PDF object
+/// that shares its reference. Scan only reachable objects, without decoding streams, and stop at
+/// a fixed work budget. An incomplete scan conservatively requires copy-on-write.
+fn stream_is_shared(doc: &Document, target: ObjRef) -> bool {
+    const MAX_WALKED_OBJECTS: usize = 100_000;
+
+    let mut stack: Vec<Object> = doc.trailer().iter().map(|(_, value)| value.clone()).collect();
+    let mut visited = std::collections::HashSet::new();
+    let mut references = 0usize;
+    let mut walked = 0usize;
+    while let Some(obj) = stack.pop() {
+        walked += 1;
+        if walked > MAX_WALKED_OBJECTS {
+            return true;
+        }
+        match obj {
+            Object::Ref(r) => {
+                if r == target {
+                    references += 1;
+                    if references > 1 {
+                        return true;
+                    }
+                }
+                if visited.insert(r.num) {
+                    stack.push((*doc.get(r)).clone());
+                }
+            }
+            Object::Array(values) => stack.extend(values),
+            Object::Dict(dict) => stack.extend(dict.iter().map(|(_, value)| value.clone())),
+            Object::Stream(stream) => stack.extend(stream.dict.iter().map(|(_, value)| value.clone())),
+            _ => {}
+        }
+    }
+    // No reachable reference to the stream is also an unsafe basis for an in-place rewrite.
+    references != 1
+}
+
+/// Put `bytes` in the document as a datasets stream. Reuse an exclusive indirect object,
+/// including one from an earlier revision, to avoid orphaning it across saves (#5155).
+/// A stream also referenced elsewhere is instead copied, so its other users remain intact.
 fn put_stream(doc: &mut Document, old: Option<&Object>, _reuse: Option<ObjRef>, bytes: &[u8]) -> ObjRef {
+    let shared = old.and_then(Object::as_ref).is_some_and(|r| stream_is_shared(doc, r));
     let stream = Object::Stream(Stream::flate(Dict::new(), bytes));
     match old.and_then(Object::as_ref) {
-        Some(r) => {
+        Some(r) if !shared => {
             doc.set(r, stream);
             r
         }
-        None => doc.add(stream),
+        _ => doc.add(stream),
     }
 }
 
