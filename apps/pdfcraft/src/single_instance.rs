@@ -109,10 +109,10 @@ impl Server {
 
 /// Commands for a handoff. On Windows, SetForegroundWindow may refuse focus from a process
 /// which isn't foreground; requesting attention lets the shell highlight the taskbar button.
-/// Wayland already needs the same fallback. Skip attention when the window is focused.
+/// Preserve Wayland's existing attention request; on Windows skip it if focused.
 fn handoff_viewport_commands(native_wayland: bool, focused: bool, windows: bool) -> Vec<egui::ViewportCommand> {
     let mut commands = vec![egui::ViewportCommand::Minimized(false), egui::ViewportCommand::Focus];
-    if !focused && (windows || native_wayland) {
+    if native_wayland || (windows && !focused) {
         commands.push(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
     }
     commands
@@ -416,9 +416,11 @@ mod tests {
         ));
 
         let other = handoff_viewport_commands(false, false, false);
-        let focused = handoff_viewport_commands(true, true, true);
+        let focused = handoff_viewport_commands(false, true, true);
+        let wayland_focused = handoff_viewport_commands(true, true, false);
         let windows = handoff_viewport_commands(false, false, true);
         assert!(!focused.iter().any(|cmd| matches!(cmd, egui::ViewportCommand::RequestUserAttention(_))));
+        assert!(wayland_focused.iter().any(|cmd| matches!(cmd, egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational))), "Wayland keeps its previous attention behaviour");
         assert!(windows.iter().any(|cmd| matches!(cmd, egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational))));
         assert!(matches!(other.first(), Some(egui::ViewportCommand::Minimized(false))));
         assert!(matches!(other.get(1), Some(egui::ViewportCommand::Focus)));
