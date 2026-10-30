@@ -1475,11 +1475,11 @@ title = "Search all PDFs in a folder"
 area = "B"
 tier = "P1"
 milestone = "M12"
-status = "planned"
+status = "partial"
 commands = []
-tools = []
+tools = ["text_find_folder"]
 evidence = []
-notes = ""
+notes = "Headless text_find_folder searches PDF text within a selected folder, with optional recursion, bounded discovery, result limits, readable per-file warnings, and read-root confinement. Desktop Advanced Search folder picker, background progress/cancel, and click-to-open results are not implemented or tested; OCR is not automatic."
 
 [[feature]]
 id = "view.search-boolean"
