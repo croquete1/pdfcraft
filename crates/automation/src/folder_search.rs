@@ -279,6 +279,29 @@ mod tests {
         assert_eq!(capped["complete"], false);
     }
 
+    #[test]
+    fn public_tool_finds_pdf_text_without_opening_or_mutating_the_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let original = sample_pdf("Warranty repairs");
+        std::fs::write(dir.path().join("repair.pdf"), &original).unwrap();
+        let mut engine = Automation::new().with_root(dir.path()).unwrap();
+        let found = engine.call(
+            "text_find_folder",
+            &json!({"directory":".","query":"warranty","limit":10}),
+        ).unwrap();
+        assert!(matches!(
+            found.as_slice(),
+            [crate::dispatch::Content::Json(result)]
+                if result["count"] == 1 && result["matches"][0]["page"] == 1
+        ), "{found:?}");
+        assert!(engine.session().docs().is_empty(), "search must not add an open document");
+        assert_eq!(std::fs::read(dir.path().join("repair.pdf")).unwrap(), original);
+        assert!(engine.call(
+            "text_find_folder",
+            &json!({"directory":"..","query":"warranty"}),
+        ).is_err(), "the read root must confine the selected folder");
+    }
+
     #[cfg(unix)]
     #[test]
     fn folder_search_does_not_follow_symlinked_subfolders() {
