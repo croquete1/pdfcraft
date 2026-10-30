@@ -394,6 +394,8 @@ fn native_wayland(_: &eframe::CreationContext<'_>) -> bool {
     false
 }
 
+/// Build the desktop app and handle startup files and single-instance handoffs.
+/// A Windows launch with accepted PDF paths requests taskbar attention when necessary.
 fn app_creator<'a>(
     launch: Launch,
     started: Rc<Cell<bool>>,
