@@ -420,7 +420,10 @@ mod tests {
         let wayland_focused = handoff_viewport_commands(true, true, false);
         let windows = handoff_viewport_commands(false, false, true);
         assert!(!focused.iter().any(|cmd| matches!(cmd, egui::ViewportCommand::RequestUserAttention(_))));
-        assert!(wayland_focused.iter().any(|cmd| matches!(cmd, egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational))), "Wayland keeps its previous attention behaviour");
+        assert!(
+            wayland_focused.iter().any(|cmd| matches!(cmd, egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational))),
+            "Wayland keeps its previous attention behaviour"
+        );
         assert!(windows.iter().any(|cmd| matches!(cmd, egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational))));
         assert!(matches!(other.first(), Some(egui::ViewportCommand::Minimized(false))));
         assert!(matches!(other.get(1), Some(egui::ViewportCommand::Focus)));
