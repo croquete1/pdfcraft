@@ -125,8 +125,63 @@ pub(crate) fn replace_line_with_limit(doc: &mut Document, page: usize, line: usi
             }
         }
     }
-    // Rebuild: the line's first operator becomes the replacement, its others go.
-    let new_data = splice(&pieces, &ops, |i| if i == first { (std::mem::take(&mut replacement), false) } else { (Vec::new(), !drops.contains(&i)) });
+    // A tight clip rectangle around the original run cuts off a longer replacement, so the new
+    // text seems to vanish (#5207). Find the clip still in force at the line, and when it bounds
+    // the run, widen it to where the new text now ends.
+    let clip_widen = font.as_ref().and_then(|metrics| {
+        let size = target.origin.state.font.as_ref().map_or(target.size, |(_, s)| *s);
+        let space = source_space(doc, &fonts_res, metrics);
+        let (cs, ws) = (target.origin.state.char_spacing, target.origin.state.word_spacing);
+        let old_indic = if visual_indic { crate::indic::to_visual(&target.text) } else { target.text.clone() };
+        let old_shown = crate::bidi::to_visual(&old_indic);
+        let w_old = source_width(metrics, &old_shown, size, space, cs, ws);
+        let w_new = source_width(metrics, &shown, size, space, cs, ws);
+        if !(w_new > w_old + 1e-3 && w_old > 1e-3) {
+            return None;
+        }
+        let (re_i, [cx, cy, cw, ch]) = bounding_clip(&ops, first)?;
+        let ctm = ctm_before(&ops, re_i);
+        // Only an upright, unflipped clip (what generators that box each run emit): a rotated or
+        // mirrored one is left alone rather than widened in the wrong direction.
+        if !(ctm.0[1].abs() < 1e-6 && ctm.0[2].abs() < 1e-6 && ctm.0[0] > 1e-6 && ch.abs() > 1e-6) {
+            return None;
+        }
+        let (lx, _) = ctm.apply(cx, cy);
+        let (rx, _) = ctm.apply(cx + cw, cy);
+        let (clip_l, clip_r) = (lx.min(rx), lx.max(rx));
+        let [tl, _, tr, _] = target.rect;
+        let tol = (target.rect[3] - target.rect[1]).abs().max(size).max(2.0);
+        // The clip must bound this run: start at or before it and end near its right edge.
+        if !(clip_l <= tl + tol && (clip_r - tr).abs() <= tol) {
+            return None;
+        }
+        let new_r = tl + (tr - tl) * (w_new / w_old);
+        if new_r <= clip_r {
+            return None;
+        }
+        let add = (new_r - clip_r) / ctm.0[0];
+        if !add.is_finite() || add <= 0.0 {
+            return None;
+        }
+        let mut re = ops.get(re_i)?.clone();
+        let n = re.operands.len();
+        *re.operands.get_mut(n.checked_sub(2)?)? = pdfcraft_content::num(cw + add);
+        Some((re_i, re))
+    });
+    // Rebuild: the line's first operator becomes the replacement, its others go; a bounding clip is
+    // widened in place.
+    let clip = clip_widen.as_ref();
+    let new_data = splice(&pieces, &ops, |i| {
+        if i == first {
+            (std::mem::take(&mut replacement), false)
+        } else if let Some((ci, re)) = clip
+            && *ci == i
+        {
+            (vec![re.clone()], false)
+        } else {
+            (Vec::new(), !drops.contains(&i))
+        }
+    });
     let contents = rewritten_contents(doc, &streams, new_data);
     let page_ref = p.obj;
     if substituted.is_some() {
@@ -144,6 +199,54 @@ pub(crate) fn replace_line_with_limit(doc: &mut Document, page: usize, line: usi
 /// The size of the last `Tf` before operator `at`.
 fn font_size_before(ops: &[Op], at: usize) -> Option<f64> {
     ops[..at].iter().rev().find(|o| o.is("Tf")).and_then(|o| o.num(1))
+}
+
+/// The nearest clipping path still in force at operator `first`: its `re` operator index and the
+/// rectangle `[x, y, w, h]` it was built from. Walks back through the content, stepping over the
+/// sibling `q`/`Q` scopes that have already closed, to the `W`/`W*` `n` that clips the run, then to
+/// the rectangle before it. A clip built from anything other than a single rectangle is left alone.
+fn bounding_clip(ops: &[Op], first: usize) -> Option<(usize, [f64; 4])> {
+    let mut closed = 0u32;
+    for i in (0..first).rev() {
+        match ops[i].op.as_slice() {
+            b"Q" => closed += 1,
+            b"q" => closed = closed.saturating_sub(1),
+            b"n" if closed == 0 && i > 0 && matches!(ops[i - 1].op.as_slice(), b"W" | b"W*") => {
+                for j in (0..i - 1).rev() {
+                    match ops[j].op.as_slice() {
+                        b"re" => return ops[j].nums::<4>().map(|r| (j, r)),
+                        b"q" | b"Q" | b"BT" | b"ET" | b"n" | b"f" | b"F" | b"f*" | b"S" | b"s" | b"B" | b"b" | b"W" | b"W*" => break,
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The CTM in force just before operator `upto`, folding every `cm` with the `q`/`Q` stack.
+fn ctm_before(ops: &[Op], upto: usize) -> Matrix {
+    let mut ctm = Matrix::IDENTITY;
+    let mut stack: Vec<Matrix> = Vec::new();
+    for op in ops.get(..upto).unwrap_or(ops) {
+        match op.op.as_slice() {
+            b"q" => stack.push(ctm),
+            b"Q" => {
+                if let Some(m) = stack.pop() {
+                    ctm = m;
+                }
+            }
+            b"cm" => {
+                if let Some(m) = op.nums::<6>() {
+                    ctm = Matrix(m).then(&ctm);
+                }
+            }
+            _ => {}
+        }
+    }
+    ctm
 }
 
 /// Operators of every line that is another drawing of one of `targets` (fake bold, an invisible

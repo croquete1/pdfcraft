@@ -1360,6 +1360,40 @@ fn text_page(content: &str) -> Document {
     Document::open(Arc::new(out)).unwrap()
 }
 
+/// The width (third number) of the first `re` rectangle in a content stream.
+fn first_re_width(content: &str) -> Option<f64> {
+    let at = content.find(" re")?;
+    let nums: Vec<f64> = content[..at].split_whitespace().rev().take(4).filter_map(|t| t.parse().ok()).collect();
+    // The four tokens before `re` are `x y w h`; reversed that is `[h, w, y, x]`.
+    nums.get(1).copied()
+}
+
+#[test]
+fn a_tight_clip_around_an_edited_line_is_widened_to_fit_a_longer_replacement() {
+    // #5207: a run boxed in a tight clip (`re W n`, as HTML-to-PDF generators emit per text box)
+    // had its longer replacement cut off at the clip edge, so the new text seemed to vanish. The
+    // clip now widens to hold it. The clip starts at the run's width (helvetica "abc" at 10 pt).
+    let content = "q 72 698 17 14 re W n BT /F1 10 Tf 72 702 Td (abc) Tj ET Q";
+    let mut doc = text_page(content);
+    assert_eq!(first_re_width(&streams(&doc, 0).concat()), Some(17.0));
+
+    text::replace_line(&mut doc, 0, 0, "abcdefghijklmnop").unwrap();
+    let widened = first_re_width(&streams(&doc, 0).concat()).unwrap();
+    // Wide enough for the new text (which is far wider than the original 17 pt box).
+    assert!(widened >= pdfcraft_fonts::helvetica_width("abcdefghijklmnop", 10.0), "clip not widened to fit: {widened}");
+
+    // A replacement that already fits leaves the clip untouched.
+    let mut fits = text_page(content);
+    text::replace_line(&mut fits, 0, 0, "ab").unwrap();
+    assert_eq!(first_re_width(&streams(&fits, 0).concat()), Some(17.0), "a shorter line must not touch the clip");
+
+    // A clip that does not bound the run (a page-wide band) is left alone, not scaled by the text.
+    let wide = "q 0 698 600 14 re W n BT /F1 10 Tf 72 702 Td (abc) Tj ET Q";
+    let mut loose = text_page(wide);
+    text::replace_line(&mut loose, 0, 0, "abcdefghijklmnop").unwrap();
+    assert_eq!(first_re_width(&streams(&loose, 0).concat()), Some(600.0), "a loose clip must not be widened");
+}
+
 #[test]
 fn tracked_text_keeps_words_in_paragraphs_and_objects() {
     let expected = "TRACKED SAMPLE TEXT";
