@@ -230,7 +230,7 @@ pub(super) fn rewrite(doc: &mut Document, ops: &[Op], reuse: Option<ObjRef>) -> 
     let Some(mut acro) = doc.resolve(&acro_obj).as_dict().cloned() else { return Ok(report) };
     let Some(xfa) = acro.get(b"XFA").cloned() else { return Ok(report) };
     let warnings = &mut report.warnings;
-    let mut acro_exclusive = true;
+    let acro_exclusive;
     match &*doc.resolve(&xfa) {
         Object::Array(items) => {
             let mut items = items.clone();
