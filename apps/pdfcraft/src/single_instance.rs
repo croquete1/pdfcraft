@@ -98,7 +98,8 @@ impl Server {
             if paths.is_empty() {
                 return Vec::new();
             }
-            for cmd in handoff_viewport_commands(native_wayland) {
+            let focused = ctx.input(|i| i.viewport().focused == Some(true));
+            for cmd in handoff_viewport_commands(native_wayland, focused) {
                 ctx.send_viewport_cmd(cmd);
             }
             vec![OsEvent::Open(paths)]
@@ -108,10 +109,10 @@ impl Server {
 
 /// Commands for a handoff. On Windows, SetForegroundWindow may refuse focus from a process
 /// which isn't foreground; requesting attention lets the shell highlight the taskbar button.
-/// Wayland already needs the same fallback. A focused window does not keep flashing.
-fn handoff_viewport_commands(native_wayland: bool) -> Vec<egui::ViewportCommand> {
+/// Wayland already needs the same fallback. Skip attention when the window is focused.
+fn handoff_viewport_commands(native_wayland: bool, focused: bool) -> Vec<egui::ViewportCommand> {
     let mut commands = vec![egui::ViewportCommand::Minimized(false), egui::ViewportCommand::Focus];
-    if cfg!(target_os = "windows") || native_wayland {
+    if !focused && (cfg!(target_os = "windows") || native_wayland) {
         commands.push(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
     }
     commands
@@ -404,7 +405,7 @@ mod tests {
 
     #[test]
     fn handoff_requests_taskbar_attention_on_windows_and_wayland() {
-        let wayland = handoff_viewport_commands(true);
+        let wayland = handoff_viewport_commands(true, false);
         assert!(matches!(
             wayland.as_slice(),
             [
@@ -414,7 +415,9 @@ mod tests {
             ]
         ));
 
-        let other = handoff_viewport_commands(false);
+        let other = handoff_viewport_commands(false, false);
+        let focused = handoff_viewport_commands(true, true);
+        assert!(!focused.iter().any(|cmd| matches!(cmd, egui::ViewportCommand::RequestUserAttention(_))));
         assert!(matches!(other.first(), Some(egui::ViewportCommand::Minimized(false))));
         assert!(matches!(other.get(1), Some(egui::ViewportCommand::Focus)));
         assert_eq!(
