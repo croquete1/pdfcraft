@@ -1513,6 +1513,59 @@ fn editing_shared_xfa_stream_preserves_embedded_file() {
     assert!(String::from_utf8_lossy(&xfa_bytes(&doc)).contains("<name>Bea</name>"));
 }
 
+/// An AcroForm used by two reachable paths must not be modified through either reference.
+#[test]
+fn editing_xfa_does_not_modify_a_shared_acroform_or_its_stream() {
+    let mut doc = Document::open(Arc::new(static_shell("<form1><page1><name>Ada</name></page1></form1>"))).unwrap();
+    let root = doc.root().unwrap();
+    let original_acro = doc.get(root).as_dict().unwrap().get(b"AcroForm").unwrap().as_dict().unwrap().clone();
+    let old_xfa = original_acro.get(b"XFA").and_then(Object::as_ref).unwrap();
+    let original_stream = doc.get(old_xfa);
+    let acro_ref = doc.add(Object::Dict(original_acro.clone()));
+    doc.update_dict(root, |catalog| {
+        catalog.set(b"AcroForm".to_vec(), Object::Ref(acro_ref));
+        catalog.set(b"OtherAcroForm".to_vec(), Object::Ref(acro_ref));
+    }).unwrap();
+
+    let result = write_data_value(&mut doc, &som_to_path("form1[0].page1[0].name[0]"), "Bea").unwrap();
+    assert!(result.written);
+    assert_ne!(result.stream, Some(old_xfa), "the stream belongs to the shared AcroForm");
+    assert_eq!(doc.get(acro_ref).as_ref(), &Object::Dict(original_acro), "the alternate AcroForm reference retains its data");
+    assert_eq!(doc.get(old_xfa).as_ref(), original_stream.as_ref());
+    let updated_acro = doc.get(root).as_dict().unwrap().get(b"AcroForm").and_then(Object::as_ref).unwrap();
+    assert_ne!(updated_acro, acro_ref, "editing must install a private AcroForm in the catalog");
+    assert!(String::from_utf8_lossy(&xfa_bytes(&doc)).contains("<name>Bea</name>"));
+}
+
+/// Sharing an indirect XFA array also shares its datasets element even when the stream has
+/// only one direct incoming reference. A new array and stream must be installed on our path.
+#[test]
+fn editing_xfa_keeps_an_aliased_xfa_array_and_its_datasets_stream() {
+    let mut doc = Document::open(Arc::new(static_shell("<form1><page1><name>Ada</name></page1></form1>"))).unwrap();
+    let root = doc.root().unwrap();
+    let mut acro = doc.get(root).as_dict().unwrap().get(b"AcroForm").unwrap().as_dict().unwrap().clone();
+    let old_xfa = acro.get(b"XFA").and_then(Object::as_ref).unwrap();
+    let old_stream = doc.get(old_xfa);
+    let array = Object::Array(vec![
+        Object::String(pdfcraft_cos::PdfString::text("datasets")),
+        Object::Ref(old_xfa),
+    ]);
+    let array_ref = doc.add(array.clone());
+    acro.set(b"XFA".to_vec(), Object::Ref(array_ref));
+    doc.update_dict(root, |catalog| {
+        catalog.set(b"AcroForm".to_vec(), Object::Dict(acro));
+        catalog.set(b"OtherXFA".to_vec(), Object::Ref(array_ref));
+    }).unwrap();
+
+    let result = write_data_value(&mut doc, &som_to_path("form1[0].page1[0].name[0]"), "Bea").unwrap();
+    assert!(result.written);
+    assert_ne!(result.stream, Some(old_xfa));
+    assert_eq!(doc.get(array_ref).as_ref(), &array, "the other XFA array path remains intact");
+    assert_eq!(doc.get(old_xfa).as_ref(), old_stream.as_ref());
+    let updated = crate::data_of(&doc).unwrap();
+    assert_eq!(updated.text_at(&som_to_path("form1[0].page1[0].name[0]")), Some("Bea"));
+}
+
 #[test]
 fn script_buttons_carry_no_javascript_action_for_other_viewers() {
     let mut doc = Document::open(Arc::new(shell(&scripted_template()))).unwrap();
