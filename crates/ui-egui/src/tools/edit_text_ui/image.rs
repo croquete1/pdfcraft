@@ -586,7 +586,9 @@ pub(crate) fn image_input(cx: &ImageCx<'_>, images: &[pdfcraft_engine::PageImage
     // Only a menu opened by a right-click on the picture: one opened over text or empty page while
     // a picture stays selected is the page's own menu.
     let menu_key = resp.id.with("image-menu");
-    if resp.secondary_clicked() {
+    // The response is shared by every page of a continuous view: only the page under the pointer decides
+    // (a later page must not clear the flag an earlier page's picture set, #5627).
+    if resp.secondary_clicked() && hover_pos.is_some_and(|p| xf.rect.contains(p)) {
         ui.ctx().data_mut(|d| d.insert_temp(menu_key, false));
     }
     let mut menu_drawn = false;
