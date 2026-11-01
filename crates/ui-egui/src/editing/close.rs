@@ -4,9 +4,9 @@ use super::save::SaveTarget;
 /// What the user was doing when we asked whether to save.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CloseRequest {
-    /// Close this document's tab. By id, not tab index: tabs can close and shift while a save
-    /// panel is open.
-    Tab(pdfcraft_engine::DocId),
+    /// Close this tab, by its [`crate::canvas::DocView::tab`] key rather than its index: tabs can
+    /// close and shift while a save panel is open, and tabs of one document share its id.
+    Tab(u64),
     /// Quit the application once every dirty document is resolved.
     Quit,
     /// File ▸ Close all: like Quit, but the application stays open.
@@ -17,10 +17,10 @@ impl PdfCraftApp {
     /// Close a tab, asking first if it has unsaved changes.
     pub fn request_close_tab(&mut self, index: usize) {
         // Text typed into a field counts as an unsaved change.
-        if self.has_unsaved_work(index)
-            && let Some(id) = self.views.get(index).map(|v| v.id)
+        if self.needs_close_prompt(index)
+            && let Some(key) = self.views.get(index).map(|v| v.tab)
         {
-            self.close_request = Some(CloseRequest::Tab(id));
+            self.close_request = Some(CloseRequest::Tab(key));
         } else {
             self.close_tab(index);
         }
@@ -29,7 +29,7 @@ impl PdfCraftApp {
     /// File ▸ Close all: clean documents close at once; each one with unsaved changes asks.
     pub fn close_all(&mut self) {
         for i in (0..self.views.len()).rev() {
-            if !self.has_unsaved_work(i) {
+            if !self.needs_close_prompt(i) {
                 self.close_tab(i);
             }
         }
@@ -63,7 +63,7 @@ impl PdfCraftApp {
 
     /// The first tab with unsaved changes.
     pub fn first_dirty(&self) -> Option<usize> {
-        (0..self.views.len()).find(|&i| self.has_unsaved_work(i))
+        (0..self.views.len()).find(|&i| self.needs_close_prompt(i))
     }
 
     /// Answer the save prompt: `Some(true)` save, `Some(false)` discard, `None` cancel.
@@ -72,7 +72,7 @@ impl PdfCraftApp {
         // The next question (another dirty document) starts on Save again.
         self.save_prompt_button = Default::default();
         let index = match req {
-            CloseRequest::Tab(id) => match self.views.iter().position(|v| v.id == id) {
+            CloseRequest::Tab(key) => match self.views.iter().position(|v| v.tab == key) {
                 Some(i) => i,
                 None => return, // already closed
             },
@@ -98,7 +98,7 @@ impl PdfCraftApp {
             None => {} // cancelled: nothing closes
             Some(false) => self.close_and_continue(ctx, index, req),
             Some(true) => {
-                let Some(id) = self.views.get(index).map(|v| v.id) else { return };
+                let Some(key) = self.views.get(index).map(|v| v.tab) else { return };
                 // Bring the document forward: what's typed in its form is committed and saved
                 // with it, and a field that rejects the value is shown where the user can fix it.
                 self.active = Some(index);
@@ -107,7 +107,7 @@ impl PdfCraftApp {
                 // document open.
                 let ctx = ctx.clone();
                 self.save_then(index, SaveTarget::InPlace, move |app| {
-                    if let Some(i) = app.views.iter().position(|v| v.id == id) {
+                    if let Some(i) = app.views.iter().position(|v| v.tab == key) {
                         app.close_and_continue(&ctx, i, req);
                     }
                 });
