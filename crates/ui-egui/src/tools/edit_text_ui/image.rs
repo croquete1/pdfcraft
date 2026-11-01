@@ -482,7 +482,7 @@ fn drag_preview(
 }
 
 /// Images on a page: select, move, resize, right-click. Returns `true` when the pointer was used.
-pub(crate) fn image_input(cx: &ImageCx<'_>, images: &[pdfcraft_engine::PageImage], view: &mut DocView, action: &mut Option<ImageAction>) -> bool {
+pub(crate) fn image_input(cx: &ImageCx<'_>, images: &[pdfcraft_engine::PageImage], view: &mut DocView, menu: &mut Option<(usize, usize)>) -> bool {
     let ImageCx { ui, resp, xf, ptr, page, info, allow_interaction } = *cx;
     let boxes: Vec<Rect> = images.iter().map(|im| im.visible_rect.map_or(Rect::NOTHING, |r| xf.user_rect(info, page, r.map(|v| v as f32)))).collect();
     let painter = ui.painter();
@@ -594,7 +594,7 @@ pub(crate) fn image_input(cx: &ImageCx<'_>, images: &[pdfcraft_engine::PageImage
         && resp.context_menu_opened()
         && ui.ctx().data(|d| d.get_temp::<bool>(menu_key)).unwrap_or(false)
     {
-        resp.context_menu(|ui| image_menu(ui, page, sel, images, view, action));
+        *menu = Some((page, sel));
         menu_drawn = true;
     }
     let Some(p) = hover_pos.filter(|p| xf.rect.contains(*p)) else { return false };
@@ -614,14 +614,14 @@ pub(crate) fn image_input(cx: &ImageCx<'_>, images: &[pdfcraft_engine::PageImage
         ui.ctx().data_mut(|d| d.insert_temp(menu_key, true));
     }
     if selected == Some(hit) && !menu_drawn {
-        resp.context_menu(|ui| image_menu(ui, page, hit, images, view, action));
+        *menu = Some((page, hit));
     }
     true
 }
 
 /// The right-click menu of the picture `hit` (its rotate, flip, replace, copy, cut, redact, link,
 /// recognize and delete items).
-fn image_menu(
+pub(crate) fn image_menu(
     ui: &mut egui::Ui,
     page: usize,
     hit: usize,
