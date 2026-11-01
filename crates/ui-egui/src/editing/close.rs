@@ -61,9 +61,27 @@ impl PdfCraftApp {
         }
     }
 
-    /// The first tab with unsaved changes.
+    /// The first tab with unsaved changes. A document shown in several tabs is asked about once,
+    /// at its last tab, so that tab counts the document's own edits.
     pub fn first_dirty(&self) -> Option<usize> {
-        (0..self.views.len()).find(|&i| self.needs_close_prompt(i))
+        (0..self.views.len()).find(|&i| self.has_unsaved_tab_work(i) || self.is_last_tab_of_dirty_document(i))
+    }
+
+    /// Quit and Close all: a document's tabs go together, so once its edits are answered (saved or
+    /// discarded) its other tabs close with the one asked about. Returns that tab's new index.
+    fn close_document_tabs(&mut self, index: usize, req: CloseRequest) -> Option<usize> {
+        let (key, id) = self.views.get(index).map(|v| (v.tab, v.id))?;
+        if matches!(req, CloseRequest::Quit | CloseRequest::All) {
+            let mut j = 0;
+            while j < self.views.len() {
+                if self.views[j].id == id && self.views[j].tab != key {
+                    self.close_tab(j);
+                } else {
+                    j += 1;
+                }
+            }
+        }
+        self.views.iter().position(|v| v.tab == key)
     }
 
     /// Answer the save prompt: `Some(true)` save, `Some(false)` discard, `None` cancel.
@@ -96,7 +114,11 @@ impl PdfCraftApp {
         }
         match choice {
             None => {} // cancelled: nothing closes
-            Some(false) => self.close_and_continue(ctx, index, req),
+            Some(false) => {
+                if let Some(i) = self.close_document_tabs(index, req) {
+                    self.close_and_continue(ctx, i, req);
+                }
+            }
             Some(true) => {
                 let Some(key) = self.views.get(index).map(|v| v.tab) else { return };
                 // Bring the document forward: what's typed in its form is committed and saved
@@ -107,7 +129,9 @@ impl PdfCraftApp {
                 // document open.
                 let ctx = ctx.clone();
                 self.save_then(index, SaveTarget::InPlace, move |app| {
-                    if let Some(i) = app.views.iter().position(|v| v.tab == key) {
+                    if let Some(i) = app.views.iter().position(|v| v.tab == key)
+                        && let Some(i) = app.close_document_tabs(i, req)
+                    {
                         app.close_and_continue(&ctx, i, req);
                     }
                 });

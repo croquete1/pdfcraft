@@ -810,7 +810,7 @@ impl PdfCraftApp {
         let (current, rotation, cover) = (source.current, source.rotation, source.cover);
         let Some(doc) = self.session.get(id) else { return false };
         let mut view = DocView::new(id, &doc.info, defaults);
-        view.current = current;
+        view.go_to_page(current);
         view.rotation = rotation;
         view.cover = cover;
         view.tab = self.take_tab_key();

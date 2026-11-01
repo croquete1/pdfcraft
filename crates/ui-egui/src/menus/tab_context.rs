@@ -358,6 +358,40 @@ mod duplicate_tests {
     }
 
     #[test]
+    fn quit_asks_once_about_a_dirty_document_shown_in_two_tabs() {
+        let mut app = PdfCraftApp::new();
+        app.open_bytes("doc.pdf", None, PDF.to_vec()).unwrap();
+        app.duplicate_tab(0);
+        app.active = Some(1);
+        assert!(app.apply_edit(blank_page()));
+        assert_eq!(app.first_dirty(), Some(1), "the last tab asks; the first one does not");
+    }
+
+    #[test]
+    fn discarding_a_document_on_quit_closes_all_its_tabs() {
+        let mut app = PdfCraftApp::new();
+        app.open_bytes("doc.pdf", None, PDF.to_vec()).unwrap();
+        let id = app.views[0].id;
+        app.duplicate_tab(0);
+        app.active = Some(1);
+        assert!(app.apply_edit(blank_page()));
+        app.close_request = Some(crate::CloseRequest::All);
+        app.resolve_close(&egui::Context::default(), Some(false));
+        assert!(app.views.is_empty(), "the discard covers every tab of the document");
+        assert!(app.session.get(id).is_none());
+    }
+
+    #[test]
+    fn a_duplicate_opens_on_the_page_of_its_source() {
+        let mut app = PdfCraftApp::new();
+        let bytes = app.session.create_blank(200.0, 300.0, 3).unwrap();
+        app.open_bytes("doc.pdf", None, bytes.as_ref().clone()).unwrap();
+        app.views[0].go_to_page(1);
+        app.duplicate_tab(0);
+        assert_eq!(app.views[1].goto.map(|(page, _)| page), Some(1), "the duplicate is sent to the source page");
+    }
+
+    #[test]
     fn a_snapshot_tab_cannot_be_duplicated() {
         let mut app = PdfCraftApp::new();
         app.open_bytes("doc.pdf", None, PDF.to_vec()).unwrap();

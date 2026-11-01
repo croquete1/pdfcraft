@@ -794,6 +794,14 @@ impl PdfCraftApp {
         self.has_unsaved_tab_work(index) || (!shared && self.session.get(v.id).is_some_and(|doc| doc.dirty))
     }
 
+    /// Whether tab `index` is the last tab of a document with unsaved edits. That tab asks about the
+    /// edits for every tab of the document (see [`Self::first_dirty`]).
+    pub(crate) fn is_last_tab_of_dirty_document(&self, index: usize) -> bool {
+        let Some(v) = self.views.get(index) else { return false };
+        let later_tab = self.views.iter().skip(index + 1).any(|other| other.id == v.id);
+        !later_tab && self.session.get(v.id).is_some_and(|doc| doc.dirty)
+    }
+
     /// Unsaved work that belongs to tab `index` alone: typing, a queued edit, an open editor.
     fn has_unsaved_tab_work(&self, index: usize) -> bool {
         let Some(v) = self.views.get(index) else { return false };
